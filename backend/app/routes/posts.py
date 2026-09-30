@@ -13,8 +13,8 @@ from app.schemas.post import PostCreate, PostUpdate, PostResponse
 from app.lib.s3 import delete_file_from_s3
 from app.lib.feed_order import feed_ordering
 from app.lib.firebase_auth import verify_firebase_token
-from app.lib import aiko_sync
 from app.routes.shop import refresh_cached_price
+from app.lib import aiko_sync, instagram_sync
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +128,9 @@ async def create_post(
 ):
     """Create a new post"""
     data = post.dict(exclude_unset=True)
+    # An instruction for this request, not a column. Popped before Post(**data).
+    post_to_instagram = data.pop('post_to_instagram', False)
+
     title = data.get('title')
     if not title:
         raise HTTPException(status_code=400, detail="Title is required")
@@ -160,6 +163,20 @@ async def create_post(
     snapshot = aiko_sync.snapshot(db_post)
     if aiko_sync.should_mirror(snapshot):
         background_tasks.add_task(aiko_sync.push_post, snapshot)
+
+    # Instagram, only when this post was explicitly opted in. Unlike the Aiko
+    # mirror there is no reconcile-on-edit counterpart in update_post: Instagram
+    # exposes no way to delete a post or change its caption after publishing, so
+    # the push happens once, here, or not at all.
+    if post_to_instagram:
+        ig_snapshot = instagram_sync.snapshot(db_post)
+        if instagram_sync.should_publish(ig_snapshot):
+            background_tasks.add_task(instagram_sync.publish_and_record, ig_snapshot)
+        else:
+            logger.info(
+                "[instagram] skipping post %s: requested but not eligible (category=%s type=%s)",
+                db_post.id, db_post.category, db_post.post_type,
+            )
 
     return db_post
 

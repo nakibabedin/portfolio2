@@ -35,5 +35,9 @@ class Post(Base):
     # posts authored here. The pair is uniquely indexed so ingest can upsert.
     source = Column(String(50), nullable=True)
     source_id = Column(String(255), nullable=True)
+    # Instagram's id for this post once it has been published there. NULL means
+    # never published. Instagram has no delete or edit endpoint, so this is a
+    # one-way record and the guard that stops a re-save from double-posting.
+    instagram_media_id = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

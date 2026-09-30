@@ -108,6 +108,8 @@ export interface Post {
   stock?: number | null;
   accepts_offers?: boolean;
   fb_marketplace_url?: string | null;
+  /** Instagram's id for this post once published there; null if it never was. */
+  instagram_media_id?: string | null;
 }
 
 export interface PostCreate {
@@ -133,6 +135,12 @@ export interface PostCreate {
   stock?: number | null;
   accepts_offers?: boolean;
   fb_marketplace_url?: string | null;
+  /**
+   * Also publish this art/photo post to Instagram. Create-only and absent from
+   * the edit form on purpose: Instagram has no API to delete a post or change
+   * its caption afterwards, so it is a one-time, irreversible choice.
+   */
+  post_to_instagram?: boolean;
 }
 
 export async function getPosts(params?: {

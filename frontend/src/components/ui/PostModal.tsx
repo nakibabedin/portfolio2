@@ -227,6 +227,9 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
   const isMusic = selectedSubject === 'music';
   const isShop = selectedSubject === 'shop';
   const isFilePost = selectedSubject === 'bio' && postType === 'file';
+  // Instagram only takes the image posts, matching the backend's eligibility check.
+  const canPostToInstagram = selectedSubject === 'art' || selectedSubject === 'photo';
+  const [postToInstagram, setPostToInstagram] = useState(false);
   const [articleContent, setArticleContent] = useState('');
   const [isArticleImageUploading, setIsArticleImageUploading] = useState(false);
   const [splashImageFile, setSplashImageFile] = useState<File | null>(null);
@@ -852,6 +855,10 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
         is_active: isActive,
         post_type: selectedSubject === 'bio' ? postType : undefined,
         cross_post_albums: crossPostAlbums,
+        // Re-checked against the subject rather than sent raw: the toggle can be
+        // switched on and then the subject changed out from under it, and this
+        // is the one field where a stale true is not recoverable.
+        post_to_instagram: canPostToInstagram && postToInstagram,
       };
 
       if (isShop) {
@@ -880,6 +887,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
       setGalleryPreviews([]);
       setIsMajor(false);
       setIsActive(false);
+      setPostToInstagram(false);
       setAudioPreviewName('');
       setArticleContent('');
       setSplashImageFile(null);
@@ -1548,6 +1556,38 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                       />
                     </button>
                   </div>
+
+                  {/* Instagram Toggle — art and photo only, and off by default.
+                      Worded plainly because it is the one switch in this form
+                      that does something no later edit can take back. */}
+                  {canPostToInstagram && (
+                    <div className="flex items-center gap-3 p-4 bg-white/5 rounded-xl border border-white/10">
+                      <div className="flex-1">
+                        <label htmlFor="postToInstagram" className="text-white font-medium block mb-1">
+                          Post to Instagram
+                        </label>
+                        <p className="text-sm text-white/60">
+                          {postToInstagram
+                            ? 'Will publish to Instagram with this title and description. This cannot be undone or edited from here.'
+                            : 'Also publish this image to Instagram when the post is created'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        id="postToInstagram"
+                        aria-checked={postToInstagram}
+                        onClick={() => setPostToInstagram(!postToInstagram)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-white/40 ${postToInstagram ? 'bg-pink-500' : 'bg-white/20'
+                          }`}
+                      >
+                        <span
+                          className={`${postToInstagram ? 'translate-x-6' : 'translate-x-1'
+                            } inline-block h-4 w-4 transform rounded-full bg-white transition-transform`}
+                        />
+                      </button>
+                    </div>
+                  )}
 
                   {/* Date */}
                   <div>
