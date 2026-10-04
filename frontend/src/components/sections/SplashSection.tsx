@@ -8,7 +8,7 @@ import Link from 'next/link';
 import { Tooltip } from '@chakra-ui/react';
 import GlassTooltipLabel from '@/components/ui/GlassTooltipLabel';
 import { getPosts, Post } from '@/lib/api';
-import { HERO_TONE_STYLES, useHeroTone } from '@/lib/useHeroTone';
+import { HERO_TONE_STYLES } from '@/lib/useHeroTone';
 
 export default function SplashSection() {
   const [scrollY, setScrollY] = useState(0);
@@ -125,11 +125,9 @@ export default function SplashSection() {
     setImageLoaded(false);
   }, [featuredImageUrl]);
 
-  // The featured image is whatever was published last, so the title cannot
-  // assume a dark backdrop. Sample what is actually behind it and flip the
-  // font colour when a bright image would swallow white text.
-  const tone = useHeroTone(featuredImageUrl, splashRef, titleBlockRef);
-  const toneStyles = HERO_TONE_STYLES[tone];
+  // Always white. useHeroTone can sample the image and flip to dark text, but
+  // that is switched off for now.
+  const toneStyles = HERO_TONE_STYLES.light;
 
   // Smooth fade out starting from 50% scroll through the splash
   const fadeStart = windowHeight * 0.5; // Start fading at 50% through viewport
