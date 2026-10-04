@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X } from 'lucide-react';
+import { X, FileUp } from 'lucide-react';
 import { type PostCreate, updatePost, getAlbumsByCategory, uploadImage } from '@/lib/api';
 import MarkdownEditor from './MarkdownEditor';
 import { useAuth } from '@/providers/AuthProvider';
@@ -23,6 +23,7 @@ interface EditPostModalProps {
         thumbnailUrl?: string | null;
         slug?: string;
         crossPostAlbums?: string[];
+        postType?: string;
     };
     onUpdate: (updatedPost: any) => void;
 }
@@ -51,9 +52,13 @@ export default function EditPostModal({
 
     const [albumOptions, setAlbumOptions] = useState<string[]>([]);
 const [articleContent, setArticleContent] = useState(post.contentUrl || '');
+    const [replacementFile, setReplacementFile] = useState<File | null>(null);
 
     const isShop = formData.category === 'apparel';
     const isProject = formData.category === 'projects';
+    // File posts (e.g. a resume PDF) keep the file itself in content_url.
+    const isFilePost = post.postType === 'file' || /\.pdf$/i.test(post.contentUrl || '');
+    const currentFileName = post.contentUrl ? decodeURIComponent(post.contentUrl.split('/').pop() || '') : '';
 
     const handleEditorImageUpload = async (file: File): Promise<string> => {
         if (!authToken) {
@@ -121,6 +126,10 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
         }
 
         try {
+            if (isFilePost && replacementFile) {
+                const uploadResult = await uploadImage(replacementFile, 'documents', authToken);
+                submitData.content_url = uploadResult.url;
+            }
             const updated = await updatePost(post.id, submitData, authToken);
             onUpdate(updated);
             onClose();
@@ -219,6 +228,43 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
                                                     placeholder="Write your project details here..."
                                                 />
                                             </div>
+                                        </div>
+                                    )}
+
+                                    {/* Replace File - Only for file posts */}
+                                    {isFilePost && (
+                                        <div>
+                                            <label className="block text-sm font-medium text-white/90 mb-2">File</label>
+                                            <div className="flex items-center gap-3 p-3 border border-white/30 bg-white/10 rounded-lg">
+                                                <p className="flex-1 min-w-0 truncate text-sm text-white/80">
+                                                    {replacementFile ? replacementFile.name : currentFileName || 'No file'}
+                                                </p>
+                                                {replacementFile && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setReplacementFile(null)}
+                                                        className="text-sm text-white/60 hover:text-white transition-colors"
+                                                    >
+                                                        Undo
+                                                    </button>
+                                                )}
+                                                <label className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-white/10 hover:bg-white/20 border border-white/30 rounded-lg transition-colors cursor-pointer">
+                                                    <FileUp className="w-4 h-4" />
+                                                    Replace file
+                                                    <input
+                                                        type="file"
+                                                        className="hidden"
+                                                        onChange={(e) => {
+                                                            const file = e.target.files?.[0];
+                                                            if (file) setReplacementFile(file);
+                                                            e.target.value = '';
+                                                        }}
+                                                    />
+                                                </label>
+                                            </div>
+                                            {replacementFile && (
+                                                <p className="mt-2 text-xs text-white/50">The new file uploads when you save.</p>
+                                            )}
                                         </div>
                                     )}
 

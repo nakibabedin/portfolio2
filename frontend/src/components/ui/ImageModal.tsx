@@ -586,6 +586,7 @@ export default function ImageModal({
                 thumbnailUrl: post?.thumbnail_url,
                 slug,
                 crossPostAlbums: crossPostAlbums || [],
+                postType,
               }}
               onUpdate={(updatedPost) => {
                 if (onUpdate) onUpdate(updatedPost);
