@@ -7,6 +7,7 @@ import { type PostCreate, updatePost, getAlbumsByCategory, uploadImage } from '@
 import MarkdownEditor from './MarkdownEditor';
 import { useAuth } from '@/providers/AuthProvider';
 import PrintifyProductPanel from '@/components/ecommerce/PrintifyProductPanel';
+import { getCategoryConfig } from '@/lib/categories';
 
 interface EditPostModalProps {
     isOpen: boolean;
@@ -58,6 +59,8 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
     const [replacementFile, setReplacementFile] = useState<File | null>(null);
 
     const isShop = formData.category === 'apparel';
+    // Shown by the name the site uses: shop posts are stored as 'apparel'.
+    const categoryTitle = getCategoryConfig(isShop ? 'shop' : formData.category)?.title ?? formData.category ?? '';
     const isProject = formData.category === 'projects';
     // File posts (e.g. a resume PDF) keep the file itself in content_url.
     const isFilePost = post.postType === 'file' || /\.pdf$/i.test(post.contentUrl || '');
@@ -282,7 +285,7 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
                                             <input
                                                 type="text"
                                                 name="category"
-                                                value={formData.category}
+                                                value={categoryTitle}
                                                 readOnly
                                                 disabled
                                                 className="w-full p-3 border border-white/10 bg-white/5 text-white/50 rounded-lg cursor-not-allowed"
