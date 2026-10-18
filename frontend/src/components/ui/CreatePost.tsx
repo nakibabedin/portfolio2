@@ -7,25 +7,38 @@ import { PlusIcon } from '@heroicons/react/24/outline';
 import PostModal from './PostModal';
 import { useAuth } from '@/providers/AuthProvider';
 
+// First URL segment -> the modal's subject. Some sections have a dedicated
+// page under a longer name (/photography) besides the /[category] route.
+const SUBJECT_BY_PATH: Record<string, string> = {
+  art: 'art',
+  artwork: 'art',
+  photo: 'photo',
+  photography: 'photo',
+  music: 'music',
+  projects: 'projects',
+  bio: 'bio',
+  shop: 'shop',
+};
+
 export default function CreatePost() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { user, loading, signInWithGoogle } = useAuth();
   const pathname = usePathname();
 
   // The button lives in the layout, so where it was pressed is only knowable
-  // from the URL. Art and photo posts are just the image you picked, so those
-  // two sections open the modal already pointed at themselves; every other
-  // subject still starts from a clean slate.
+  // from the URL. Inside a section (and album), the modal opens already
+  // pointed at it; anywhere else it starts from a clean slate.
   const [defaultSubject, defaultAlbum] = useMemo(() => {
-    const [category, album] = (pathname || '')
+    const [segment, album] = (pathname || '')
       .split('/')
       .filter(Boolean)
       .map(decodeURIComponent);
 
-    if (category !== 'art' && category !== 'photo') return ['', ''];
+    const subject = SUBJECT_BY_PATH[segment ?? ''];
+    if (!subject) return ['', ''];
     // "favorites" is a view across albums, not an album anything can be filed
     // under.
-    return [category, album && album !== 'favorites' ? album : ''];
+    return [subject, album && album !== 'favorites' ? album : ''];
   }, [pathname]);
 
   if (loading) {

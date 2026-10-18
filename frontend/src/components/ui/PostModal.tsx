@@ -199,7 +199,9 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
   const [selectedAlbum, setSelectedAlbum] = useState<string>(defaultAlbum);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [postType, setPostType] = useState('text'); // 'text', 'photo', 'audio', 'video', 'file'
+  // 'text', 'photo', 'audio', 'video', 'file'. Matches what picking the subject
+  // would set, for a modal that opens already on one.
+  const [postType, setPostType] = useState(defaultSubject && defaultSubject !== 'bio' ? 'photo' : 'text');
   // Embedding instead of uploading content: a w_notes note, or the live
   // now-playing card from mariposa. Either lives in whichever subject is
   // selected — it is a post type, not a subject of its own.
@@ -249,7 +251,8 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
       const fetchAlbums = async () => {
         setIsLoadingAlbums(true);
         try {
-          const category = selectedSubject === 'photo' ? 'photo' : selectedSubject;
+          // Shop posts are stored as 'apparel'.
+          const category = selectedSubject === 'shop' ? 'apparel' : selectedSubject;
           console.log('[PostModal] Fetching unique albums for category:', category);
           const albums = await getAlbumsByCategory(category);
           console.log('[PostModal] Fetched albums:', albums);
