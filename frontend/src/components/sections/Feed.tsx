@@ -798,6 +798,7 @@ export default function Feed({ directory, activeAlbum = 'all', category, useData
                   thumbnail_url: selectedImage.rawPost.thumbnail_url,
                   splash_image_url: selectedImage.rawPost.splash_image_url,
                   gallery_urls: selectedImage.rawPost.gallery_urls ?? [],
+                  printify_product_id: selectedImage.rawPost.printify_product_id ?? null,
                 }
                 : undefined
             }

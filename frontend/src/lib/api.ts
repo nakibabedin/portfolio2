@@ -103,6 +103,7 @@ export interface Post {
   is_active?: boolean;
   is_favorite?: boolean;
   cross_post_albums?: string[];
+  printify_product_id?: string | null;
 }
 
 export interface PostCreate {
@@ -123,6 +124,7 @@ export interface PostCreate {
   is_favorite?: boolean;
   post_type?: string;
   cross_post_albums?: string[];
+  printify_product_id?: string | null;
 }
 
 export async function getPosts(params?: {
@@ -527,4 +529,126 @@ export async function embedNowPlaying(
     throw new Error(apiErrorMessage(error, 'Failed to place the now-playing card'));
   }
   return response.json();
+}
+
+// --- Shop ---------------------------------------------------------------------
+// Printify holds the catalog (sizes, colors, prices); Stripe takes the payment.
+// All money here is integer cents.
+
+export interface ShopOptionValue {
+  id: number;
+  title: string;
+  colors: string[];
+}
+
+export interface ShopOption {
+  name: string;
+  type?: string | null;
+  values: ShopOptionValue[];
+}
+
+export interface ShopVariant {
+  id: number;
+  title: string;
+  price_cents: number;
+  /** One option value id per option, e.g. [color id, size id]. */
+  options: number[];
+  /** Admin only: what Printify charges the shop to make it. */
+  cost_cents?: number | null;
+  is_enabled?: boolean;
+  is_available?: boolean;
+}
+
+export interface ShopListing {
+  product_id: string;
+  title: string;
+  options: ShopOption[];
+  variants: ShopVariant[];
+  /** Printify's quote for shipping one item to the ship-to country; null if unavailable. */
+  shipping_cents: number | null;
+  images: { src: string; variant_ids: number[] }[];
+  ships_to?: string[];
+}
+
+export interface PrintifyProductSummary {
+  id: string;
+  title: string;
+  image: string | null;
+  min_price_cents: number | null;
+}
+
+export interface ShopOrderStatus {
+  status: 'pending' | 'paid' | 'submitted' | 'failed' | 'expired';
+  title: string | null;
+  variant_title: string | null;
+  quantity: number;
+  amount_total_cents: number | null;
+  currency: string;
+}
+
+export function formatCents(cents: number, currency = 'usd'): string {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: currency.toUpperCase() }).format(cents / 100);
+}
+
+async function shopRequest<T>(path: string, init: RequestInit & { authToken?: string } = {}, fallback = 'Shop request failed'): Promise<T> {
+  const { authToken, headers, ...rest } = init;
+  const response = await fetch(`${API_URL}/api/shop${path}`, {
+    ...rest,
+    cache: 'no-store',
+    headers: {
+      ...(rest.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      ...headers,
+    },
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(apiErrorMessage(error, fallback));
+  }
+  return response.json();
+}
+
+/** The sellable options of a shop post, or null if it isn't linked to a product. */
+export async function getShopListing(postId: string): Promise<ShopListing | null> {
+  try {
+    return await shopRequest<ShopListing>(`/listing/${postId}`);
+  } catch (err) {
+    if (err instanceof Error && /not found/i.test(err.message)) return null;
+    throw err;
+  }
+}
+
+/** Start Stripe Checkout; resolves to the hosted checkout URL to redirect to. */
+export async function startCheckout(postId: string, variantId: number, quantity = 1): Promise<string> {
+  const { url } = await shopRequest<{ url: string }>('/checkout', {
+    method: 'POST',
+    body: JSON.stringify({ post_id: postId, variant_id: variantId, quantity }),
+  }, 'Could not start checkout');
+  return url;
+}
+
+export async function getCheckoutStatus(sessionId: string): Promise<ShopOrderStatus> {
+  return shopRequest<ShopOrderStatus>(`/checkout/${encodeURIComponent(sessionId)}`);
+}
+
+export async function listPrintifyProducts(authToken?: string): Promise<PrintifyProductSummary[]> {
+  const body = await shopRequest<{ products: PrintifyProductSummary[] }>('/admin/printify-products', { authToken }, 'Could not load Printify products');
+  return body.products;
+}
+
+export async function getPrintifyProduct(productId: string, authToken?: string): Promise<ShopListing> {
+  return shopRequest<ShopListing>(`/admin/products/${productId}`, { authToken }, 'Could not load the Printify product');
+}
+
+/** Write variant prices / enabled flags through to Printify. */
+export async function updatePrintifyVariants(
+  productId: string,
+  variants: { id: number; price_cents?: number; is_enabled?: boolean }[],
+  authToken?: string,
+): Promise<ShopListing> {
+  return shopRequest<ShopListing>(`/admin/products/${productId}/variants`, {
+    method: 'PUT',
+    body: JSON.stringify({ variants }),
+    authToken,
+  }, 'Could not save prices to Printify');
 }

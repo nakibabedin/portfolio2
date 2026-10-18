@@ -10,6 +10,7 @@ import { type Post, updatePost } from '@/lib/api';
 import { useAuth } from '@/providers/AuthProvider';
 import EditPostModal from './EditPostModal';
 import NowPlayingTile from '@/components/ui/NowPlayingTile';
+import BuyPanel from '@/components/ecommerce/BuyPanel';
 
 interface ImageModalProps {
   isOpen: boolean;
@@ -30,7 +31,7 @@ interface ImageModalProps {
   price?: number | null;
   galleryUrls?: string[];
   canEdit?: boolean;
-  post?: Pick<Post, 'content_url' | 'thumbnail_url' | 'splash_image_url' | 'gallery_urls'>;
+  post?: Pick<Post, 'content_url' | 'thumbnail_url' | 'splash_image_url' | 'gallery_urls' | 'printify_product_id'>;
   isActive?: boolean;
   isFavorite?: boolean;
   crossPostAlbums?: string[];
@@ -125,7 +126,10 @@ export default function ImageModal({
   // The now-playing card is live and carries nothing of its own to show.
   const isNowPlaying = postType === 'now_playing';
   const isBio = category === 'bio' || isText;
-  const isShop = category === 'apparel';
+  // The feed hands shop posts over as 'shop' (the URL slug); the database and
+  // the edit form know them as 'apparel'.
+  const dbCategory = category === 'shop' ? 'apparel' : category;
+  const isShop = dbCategory === 'apparel';
   const isArtOrPhoto = category === 'art' || category === 'photo';
 
   const trimmedDescription = description?.trim() ?? '';
@@ -483,17 +487,8 @@ export default function ImageModal({
                           <p className="text-white/80 leading-relaxed whitespace-pre-wrap italic">{panelDescription}</p>
                         )}
 
-                        {isShop && (
-                          <button
-                            type="button"
-                            className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-white font-semibold border border-white/20 shadow-md shadow-black/30 transition-all duration-200 w-full md:w-auto backdrop-blur-sm hover:border-white/50 hover:shadow-xl hover:bg-white/20"
-                            aria-label="Buy item (coming soon)"
-                          >
-                            Buy
-                            {formattedPrice && (
-                              <span className="text-sm font-medium text-white/80">{formattedPrice}</span>
-                            )}
-                          </button>
+                        {isShop && postId && (
+                          <BuyPanel key={postId} postId={postId} fallbackPrice={formattedPrice ? `$${formattedPrice}` : null} />
                         )}
                       </div>
                     </div>
@@ -577,7 +572,7 @@ export default function ImageModal({
                 id: postId,
                 title,
                 description,
-                category: category || '',
+                category: dbCategory || '',
                 album: album || '',
                 price,
                 isActive,
@@ -587,6 +582,7 @@ export default function ImageModal({
                 slug,
                 crossPostAlbums: crossPostAlbums || [],
                 postType,
+                printifyProductId: post?.printify_product_id ?? null,
               }}
               onUpdate={(updatedPost) => {
                 if (onUpdate) onUpdate(updatedPost);
