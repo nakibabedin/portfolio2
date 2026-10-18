@@ -6,6 +6,7 @@ import { X, FileUp } from 'lucide-react';
 import { type PostCreate, updatePost, getAlbumsByCategory, uploadImage } from '@/lib/api';
 import MarkdownEditor from './MarkdownEditor';
 import { useAuth } from '@/providers/AuthProvider';
+import PrintifyProductPanel from '@/components/ecommerce/PrintifyProductPanel';
 
 interface EditPostModalProps {
     isOpen: boolean;
@@ -24,6 +25,7 @@ interface EditPostModalProps {
         slug?: string;
         crossPostAlbums?: string[];
         postType?: string;
+        printifyProductId?: string | null;
     };
     onUpdate: (updatedPost: any) => void;
 }
@@ -48,6 +50,7 @@ export default function EditPostModal({
         is_major: post.isMajor,
         slug: post.slug,
         cross_post_albums: post.crossPostAlbums || [],
+        printify_product_id: post.printifyProductId ?? null,
     });
 
     const [albumOptions, setAlbumOptions] = useState<string[]>([]);
@@ -118,6 +121,11 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
         const submitData = { ...formData };
         if (!isShop) {
             submitData.price = null;
+            delete submitData.printify_product_id;
+        } else if (submitData.printify_product_id) {
+            // A linked product's price comes from Printify (the backend
+            // refreshes it on save), not from this form.
+            delete submitData.price;
         }
 
         // For projects, include the article content as content_url
@@ -316,20 +324,13 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
                                         </div>
                                     </div>
 
-                                    {/* Price - Only show if shop */}
+                                    {/* Shop: what this post sells, and at what price */}
                                     {isShop && (
-                                        <div>
-                                            <label className="block text-sm font-medium text-white/90 mb-2">Price (USD)</label>
-                                            <input
-                                                type="number"
-                                                name="price"
-                                                value={formData.price || ''}
-                                                onChange={handleChange}
-                                                step="0.01"
-                                                className="w-full p-3 border border-white/30 bg-white/10 text-white rounded-lg focus:ring-2 focus:ring-white/50 focus:border-white/50 placeholder-white/50"
-                                                placeholder="0.00"
-                                            />
-                                        </div>
+                                        <PrintifyProductPanel
+                                            productId={formData.printify_product_id ?? null}
+                                            onChange={(id) => setFormData(prev => ({ ...prev, printify_product_id: id }))}
+                                            authToken={authToken}
+                                        />
                                     )}
 
                                     {/* Toggles */}

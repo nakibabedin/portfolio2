@@ -19,6 +19,7 @@ import {
 import { getAvailableNotes, embedNote, embedNowPlaying, type AvailableNote, createPost, uploadImage, getAlbumsByCategory, createAlbum, type PostCreate } from '@/lib/api';
 import MarkdownEditor from './MarkdownEditor';
 import { useAuth } from '@/providers/AuthProvider';
+import PrintifyProductPanel from '@/components/ecommerce/PrintifyProductPanel';
 
 interface PostModalProps {
   isOpen: boolean;
@@ -219,7 +220,8 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
   const [isArticleImageUploading, setIsArticleImageUploading] = useState(false);
   const [splashImageFile, setSplashImageFile] = useState<File | null>(null);
   const [splashImagePreview, setSplashImagePreview] = useState<string>('');
-  const [price, setPrice] = useState('');
+  // Shop posts sell a Printify product; its prices live in Printify.
+  const [printifyProductId, setPrintifyProductId] = useState<string | null>(null);
   const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
   const [galleryPreviews, setGalleryPreviews] = useState<string[]>([]);
   const { token: authToken } = useAuth();
@@ -272,10 +274,9 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
     setSplashImageFile(null);
     setSplashImagePreview('');
     setArticleContent('');
-    setPrice('');
+    setPrintifyProductId(null);
     setGalleryFiles([]);
     setGalleryPreviews([]);
-    setPrice('');
     setGalleryFiles([]);
     setGalleryPreviews([]);
     setIsActive(false);
@@ -651,11 +652,9 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
         return;
       }
 
-      let parsedPrice: number | null = null;
       if (isShop) {
-        parsedPrice = price.trim() === '' ? null : Number(price);
-        if (parsedPrice === null || Number.isNaN(parsedPrice) || parsedPrice < 0) {
-          setError('Please provide a valid price for shop items.');
+        if (!printifyProductId) {
+          setError('Pick the Printify product this post sells.');
           setIsSubmitting(false);
           return;
         }
@@ -843,7 +842,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
       };
 
       if (isShop) {
-        postData.price = parsedPrice;
+        postData.printify_product_id = printifyProductId;
         postData.gallery_urls = galleryUrls;
       }
 
@@ -872,7 +871,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
       setArticleContent('');
       setSplashImageFile(null);
       setSplashImagePreview('');
-      setPrice('');
+      setPrintifyProductId(null);
       setCrossPostAlbums([]);
       setDate(getCurrentESTDateTime());
       setIsSubmitting(false);
@@ -1440,21 +1439,11 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                   </div>
 
                   {isShop && (
-                    <div>
-                      <label className="block text-sm font-medium text-white/90 mb-2">
-                        Price (USD)
-                      </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={price}
-                        onChange={(e) => setPrice(e.target.value)}
-                        className="w-full p-3 border border-white/30 bg-white/10 text-white rounded-lg focus:ring-2 focus:ring-white/50 focus:border-white/50 placeholder-white/50"
-                        placeholder="e.g. 39.99"
-                        required
-                      />
-                    </div>
+                    <PrintifyProductPanel
+                      productId={printifyProductId}
+                      onChange={setPrintifyProductId}
+                      authToken={authToken}
+                    />
                   )}
 
                   {/* Description */}
@@ -1588,7 +1577,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                         (selectedSubject === 'projects' && !articleContent.trim()) ||
                         (selectedSubject === 'bio' && !contentFile && !articleContent.trim()) ||
                         ((isMusic || isShop || isFilePost) && !thumbnailFile) ||
-                        (isShop && price.trim() === '') ||
+                        (isShop && !printifyProductId) ||
                         (isShop && galleryFiles.length === 0) ||
                         isSubmitting ||
                         isUploading ||
