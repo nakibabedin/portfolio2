@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, DateTime, func, Boolean, Numeric
+from sqlalchemy import Column, String, Text, DateTime, func, Boolean, Numeric, Integer
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 import uuid
 from app.database import Base
@@ -25,6 +25,12 @@ class Post(Base):
     # Shop posts: the Printify product this listing sells. Printify holds the
     # variants and their prices; `price` above is a cached "from" price.
     printify_product_id = Column(String(64), nullable=True)
+    # 'printify' or 'meetup' (sold in person; `price` is the asking price and
+    # `stock` how many are left). NULL for posts that aren't shop items.
+    listing_type = Column(String(16), nullable=True)
+    stock = Column(Integer, nullable=True)
+    accepts_offers = Column(Boolean, nullable=False, default=False)
+    fb_marketplace_url = Column(Text, nullable=True)
     # Provenance for mirrored posts: 'w_notes' + the upstream note id. NULL for
     # posts authored here. The pair is uniquely indexed so ingest can upsert.
     source = Column(String(50), nullable=True)

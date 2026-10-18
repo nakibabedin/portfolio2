@@ -6,7 +6,7 @@ import { X, FileUp } from 'lucide-react';
 import { type PostCreate, updatePost, getAlbumsByCategory, uploadImage } from '@/lib/api';
 import MarkdownEditor from './MarkdownEditor';
 import { useAuth } from '@/providers/AuthProvider';
-import PrintifyProductPanel from '@/components/ecommerce/PrintifyProductPanel';
+import ShopListingFields, { shopListingError, shopListingPayload, type ShopListingValue } from '@/components/ecommerce/ShopListingFields';
 import { getCategoryConfig } from '@/lib/categories';
 
 interface EditPostModalProps {
@@ -27,6 +27,10 @@ interface EditPostModalProps {
         crossPostAlbums?: string[];
         postType?: string;
         printifyProductId?: string | null;
+        listingType?: 'printify' | 'meetup' | null;
+        stock?: number | null;
+        acceptsOffers?: boolean;
+        fbMarketplaceUrl?: string | null;
     };
     onUpdate: (updatedPost: any) => void;
 }
@@ -51,7 +55,16 @@ export default function EditPostModal({
         is_major: post.isMajor,
         slug: post.slug,
         cross_post_albums: post.crossPostAlbums || [],
+    });
+
+    // How a shop post is sold. Posts from before meetup items were Printify.
+    const [shopListing, setShopListing] = useState<ShopListingValue>({
+        listing_type: post.listingType ?? 'printify',
         printify_product_id: post.printifyProductId ?? null,
+        price: post.price ?? null,
+        stock: post.stock ?? null,
+        accepts_offers: post.acceptsOffers ?? false,
+        fb_marketplace_url: post.fbMarketplaceUrl ?? null,
     });
 
     const [albumOptions, setAlbumOptions] = useState<string[]>([]);
@@ -124,11 +137,17 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
         const submitData = { ...formData };
         if (!isShop) {
             submitData.price = null;
-            delete submitData.printify_product_id;
-        } else if (submitData.printify_product_id) {
-            // A linked product's price comes from Printify (the backend
-            // refreshes it on save), not from this form.
+        } else {
+            const listingError = shopListingError(shopListing);
+            if (listingError) {
+                setError(listingError);
+                setIsLoading(false);
+                return;
+            }
+            // A Printify product's price comes from Printify (the backend
+            // refreshes it on save); a meetup item's from the listing fields.
             delete submitData.price;
+            Object.assign(submitData, shopListingPayload(shopListing));
         }
 
         // For projects, include the article content as content_url
@@ -329,9 +348,9 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
 
                                     {/* Shop: what this post sells, and at what price */}
                                     {isShop && (
-                                        <PrintifyProductPanel
-                                            productId={formData.printify_product_id ?? null}
-                                            onChange={(id) => setFormData(prev => ({ ...prev, printify_product_id: id }))}
+                                        <ShopListingFields
+                                            value={shopListing}
+                                            onChange={(patch) => setShopListing(prev => ({ ...prev, ...patch }))}
                                             authToken={authToken}
                                         />
                                     )}

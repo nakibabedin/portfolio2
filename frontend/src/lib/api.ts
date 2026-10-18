@@ -104,6 +104,10 @@ export interface Post {
   is_favorite?: boolean;
   cross_post_albums?: string[];
   printify_product_id?: string | null;
+  listing_type?: 'printify' | 'meetup' | null;
+  stock?: number | null;
+  accepts_offers?: boolean;
+  fb_marketplace_url?: string | null;
 }
 
 export interface PostCreate {
@@ -125,6 +129,10 @@ export interface PostCreate {
   post_type?: string;
   cross_post_albums?: string[];
   printify_product_id?: string | null;
+  listing_type?: 'printify' | 'meetup' | null;
+  stock?: number | null;
+  accepts_offers?: boolean;
+  fb_marketplace_url?: string | null;
 }
 
 export async function getPosts(params?: {
@@ -559,7 +567,9 @@ export interface ShopVariant {
   is_available?: boolean;
 }
 
+/** A Printify product as the shop shows it. */
 export interface ShopListing {
+  type?: 'printify';
   product_id: string;
   title: string;
   options: ShopOption[];
@@ -568,6 +578,18 @@ export interface ShopListing {
   shipping_cents: number | null;
   images: { src: string; variant_ids: number[] }[];
   ships_to?: string[];
+}
+
+/** A meetup item: sold in person, paid online or in cash. */
+export interface MeetupListing {
+  type: 'meetup';
+  title: string;
+  price_cents: number | null;
+  /** Stock left, less what open checkouts are holding. */
+  available: number;
+  accepts_offers: boolean;
+  fb_marketplace_url: string | null;
+  max_quantity: number;
 }
 
 export interface PrintifyProductSummary {
@@ -584,6 +606,7 @@ export interface ShopOrderStatus {
   quantity: number;
   amount_total_cents: number | null;
   currency: string;
+  fulfillment?: 'printify' | 'meetup';
 }
 
 export function formatCents(cents: number, currency = 'usd'): string {
@@ -608,10 +631,10 @@ async function shopRequest<T>(path: string, init: RequestInit & { authToken?: st
   return response.json();
 }
 
-/** The sellable options of a shop post, or null if it isn't linked to a product. */
-export async function getShopListing(postId: string): Promise<ShopListing | null> {
+/** What a shop post sells, or null if it isn't set up for sale. */
+export async function getShopListing(postId: string): Promise<ShopListing | MeetupListing | null> {
   try {
-    return await shopRequest<ShopListing>(`/listing/${postId}`);
+    return await shopRequest<ShopListing | MeetupListing>(`/listing/${postId}`);
   } catch (err) {
     if (err instanceof Error && /not found/i.test(err.message)) return null;
     throw err;
@@ -619,7 +642,7 @@ export async function getShopListing(postId: string): Promise<ShopListing | null
 }
 
 /** Start Stripe Checkout; resolves to the hosted checkout URL to redirect to. */
-export async function startCheckout(postId: string, variantId: number, quantity = 1): Promise<string> {
+export async function startCheckout(postId: string, variantId: number | null, quantity = 1): Promise<string> {
   const { url } = await shopRequest<{ url: string }>('/checkout', {
     method: 'POST',
     body: JSON.stringify({ post_id: postId, variant_id: variantId, quantity }),
@@ -651,4 +674,83 @@ export async function updatePrintifyVariants(
     body: JSON.stringify({ variants }),
     authToken,
   }, 'Could not save prices to Printify');
+}
+
+// --- Meetup items: requests, offers, settling up --------------------------------
+
+export interface OfferSubmission {
+  post_id: string;
+  quantity: number;
+  /** Required when the item takes offers; omitted otherwise (listed price). */
+  offer_cents?: number;
+  name?: string;
+  email: string;
+  phone?: string;
+  message?: string;
+  /** Honeypot; always empty from a real visitor. */
+  website?: string;
+}
+
+export async function submitOffer(offer: OfferSubmission): Promise<void> {
+  await shopRequest('/offers', { method: 'POST', body: JSON.stringify(offer) }, 'Could not send your request');
+}
+
+export interface ShopOfferRow {
+  id: string;
+  created_at: string | null;
+  status: 'new' | 'accepted' | 'declined' | 'paid';
+  post_id: string | null;
+  title: string | null;
+  listed_price_cents: number | null;
+  available: number;
+  quantity: number;
+  offer_cents: number | null;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  message: string | null;
+  pay_link_expires_at: string | null;
+}
+
+export interface ShopOrderRow {
+  id: string;
+  created_at: string | null;
+  status: string;
+  livemode: boolean;
+  fulfillment: 'printify' | 'meetup';
+  payment_method: 'stripe' | 'cash';
+  title: string | null;
+  email: string | null;
+  phone: string | null;
+  variant_title: string | null;
+  quantity: number;
+  amount_total_cents: number | null;
+  printify_order_id: string | null;
+  printify_status: string | null;
+  tracking_url: string | null;
+  error: string | null;
+}
+
+export async function listShopOffers(authToken: string, includeClosed = false): Promise<ShopOfferRow[]> {
+  return shopRequest<ShopOfferRow[]>(`/admin/offers${includeClosed ? '?include_closed=true' : ''}`, { authToken }, 'Could not load requests');
+}
+
+export async function createOfferPayLink(offerId: string, authToken: string): Promise<{ url: string; amount_cents: number }> {
+  return shopRequest(`/admin/offers/${offerId}/pay-link`, { method: 'POST', authToken }, 'Could not make a pay link');
+}
+
+export async function markOfferPaidCash(offerId: string, authToken: string): Promise<void> {
+  await shopRequest(`/admin/offers/${offerId}/paid-cash`, { method: 'POST', authToken }, 'Could not record the cash sale');
+}
+
+export async function declineOffer(offerId: string, authToken: string): Promise<void> {
+  await shopRequest(`/admin/offers/${offerId}/decline`, { method: 'POST', authToken }, 'Could not decline the request');
+}
+
+export async function listShopOrders(authToken: string): Promise<ShopOrderRow[]> {
+  return shopRequest<ShopOrderRow[]>('/admin/orders', { authToken }, 'Could not load orders');
+}
+
+export async function completeShopOrder(orderId: string, authToken: string): Promise<void> {
+  await shopRequest(`/admin/orders/${orderId}/complete`, { method: 'POST', authToken }, 'Could not update the order');
 }

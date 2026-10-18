@@ -19,7 +19,7 @@ import {
 import { getAvailableNotes, embedNote, embedNowPlaying, type AvailableNote, createPost, uploadImage, getAlbumsByCategory, createAlbum, type PostCreate } from '@/lib/api';
 import MarkdownEditor from './MarkdownEditor';
 import { useAuth } from '@/providers/AuthProvider';
-import PrintifyProductPanel from '@/components/ecommerce/PrintifyProductPanel';
+import ShopListingFields, { shopListingError, shopListingPayload, type ShopListingValue } from '@/components/ecommerce/ShopListingFields';
 
 interface PostModalProps {
   isOpen: boolean;
@@ -29,6 +29,15 @@ interface PostModalProps {
   /** Album to open on, when that subject was showing a single album. */
   defaultAlbum?: string;
 }
+
+const EMPTY_SHOP_LISTING: ShopListingValue = {
+  listing_type: 'printify',
+  printify_product_id: null,
+  price: null,
+  stock: 1,
+  accepts_offers: false,
+  fb_marketplace_url: null,
+};
 
 /** "IMG_2481.jpeg" -> "IMG_2481". */
 function titleFromFileName(name: string): string {
@@ -220,8 +229,8 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
   const [isArticleImageUploading, setIsArticleImageUploading] = useState(false);
   const [splashImageFile, setSplashImageFile] = useState<File | null>(null);
   const [splashImagePreview, setSplashImagePreview] = useState<string>('');
-  // Shop posts sell a Printify product; its prices live in Printify.
-  const [printifyProductId, setPrintifyProductId] = useState<string | null>(null);
+  // How a shop post is sold: a Printify product, or a meetup item.
+  const [shopListing, setShopListing] = useState<ShopListingValue>(EMPTY_SHOP_LISTING);
   const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
   const [galleryPreviews, setGalleryPreviews] = useState<string[]>([]);
   const { token: authToken } = useAuth();
@@ -274,7 +283,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
     setSplashImageFile(null);
     setSplashImagePreview('');
     setArticleContent('');
-    setPrintifyProductId(null);
+    setShopListing(EMPTY_SHOP_LISTING);
     setGalleryFiles([]);
     setGalleryPreviews([]);
     setGalleryFiles([]);
@@ -653,8 +662,9 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
       }
 
       if (isShop) {
-        if (!printifyProductId) {
-          setError('Pick the Printify product this post sells.');
+        const listingError = shopListingError(shopListing);
+        if (listingError) {
+          setError(listingError);
           setIsSubmitting(false);
           return;
         }
@@ -842,7 +852,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
       };
 
       if (isShop) {
-        postData.printify_product_id = printifyProductId;
+        Object.assign(postData, shopListingPayload(shopListing));
         postData.gallery_urls = galleryUrls;
       }
 
@@ -871,7 +881,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
       setArticleContent('');
       setSplashImageFile(null);
       setSplashImagePreview('');
-      setPrintifyProductId(null);
+      setShopListing(EMPTY_SHOP_LISTING);
       setCrossPostAlbums([]);
       setDate(getCurrentESTDateTime());
       setIsSubmitting(false);
@@ -1439,9 +1449,9 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                   </div>
 
                   {isShop && (
-                    <PrintifyProductPanel
-                      productId={printifyProductId}
-                      onChange={setPrintifyProductId}
+                    <ShopListingFields
+                      value={shopListing}
+                      onChange={(patch) => setShopListing((prev) => ({ ...prev, ...patch }))}
                       authToken={authToken}
                     />
                   )}
@@ -1577,7 +1587,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                         (selectedSubject === 'projects' && !articleContent.trim()) ||
                         (selectedSubject === 'bio' && !contentFile && !articleContent.trim()) ||
                         ((isMusic || isShop || isFilePost) && !thumbnailFile) ||
-                        (isShop && !printifyProductId) ||
+                        (isShop && shopListingError(shopListing) !== null) ||
                         (isShop && galleryFiles.length === 0) ||
                         isSubmitting ||
                         isUploading ||

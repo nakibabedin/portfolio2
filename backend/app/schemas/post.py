@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from datetime import datetime
-from typing import Optional, List
+from typing import Literal, Optional, List
 from uuid import UUID
 
 class PostBase(BaseModel):
@@ -20,6 +20,10 @@ class PostBase(BaseModel):
     is_favorite: bool = Field(default=False, description="Flag indicating whether the post is a favorite")
     cross_post_albums: List[str] = Field(default_factory=list, description="Additional album slugs this post appears in")
     printify_product_id: Optional[str] = Field(default=None, description="Printify product sold by a shop post")
+    listing_type: Optional[Literal["printify", "meetup"]] = Field(default=None, description="How a shop post is sold")
+    stock: Optional[int] = Field(default=None, ge=0, description="Meetup items left")
+    accepts_offers: bool = Field(default=False, description="Meetup item takes offers below the asking price")
+    fb_marketplace_url: Optional[str] = Field(default=None, description="The same item on Facebook Marketplace")
 
 class PostCreate(PostBase):
     slug: Optional[str] = Field(default=None, description="Custom slug override")
@@ -40,6 +44,10 @@ class PostUpdate(BaseModel):
     is_favorite: Optional[bool] = None
     cross_post_albums: Optional[List[str]] = None
     printify_product_id: Optional[str] = None
+    listing_type: Optional[Literal["printify", "meetup"]] = None
+    stock: Optional[int] = Field(default=None, ge=0)
+    accepts_offers: Optional[bool] = None
+    fb_marketplace_url: Optional[str] = None
     date: Optional[datetime] = None
     
     class Config:

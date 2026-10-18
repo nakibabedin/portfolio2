@@ -1,6 +1,15 @@
-"""The shop: Stripe takes the money, Printify prints and ships.
+"""The shop: Stripe takes the money; Printify prints and ships, or the owner
+hands the item over at a public meetup.
 
-The flow, end to end:
+A shop post is one of two listing types:
+
+- ``printify``: a Printify product, with sizes/colors priced in Printify.
+- ``meetup``: an item the owner sells in person (often also listed on
+  Facebook Marketplace). Its price is ``posts.price`` and ``stock`` counts
+  what's left. Buyers pay online here, or send a request / offer and settle at
+  the meetup -- those live in ``shop_meetup.py``.
+
+The flow for a Printify product, end to end:
 
 1. The product modal reads ``GET /api/shop/listing/{post_id}`` -- the linked
    Printify product's sellable sizes/colors and prices.
@@ -23,6 +32,10 @@ Two switches keep money and printing apart while testing:
   Printify order at all. Turn it on to see test orders reach Printify (always
   on hold, never sent to production).
 
+A meetup checkout is the same hand-off to Stripe, minus shipping: it holds
+the items while the session is open, collects an email and phone, and the
+webhook marks the order paid and takes the items out of stock.
+
 The admin endpoints let the CRM link a post to a Printify product and edit
 variant prices; edits are written through to Printify, which stays the source
 of truth.
@@ -30,12 +43,14 @@ of truth.
 
 import logging
 import os
+from datetime import datetime, timedelta
 from typing import List, Optional
 from uuid import UUID, uuid4
 
 import stripe
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
@@ -43,7 +58,7 @@ from app.database import SessionLocal, get_db
 from app.lib import printify
 from app.lib.firebase_auth import verify_firebase_token
 from app.models.post import Post
-from app.models.shop_order import ShopOrder
+from app.models.shop_order import ShopOffer, ShopOrder
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +66,17 @@ router = APIRouter(prefix="/api/shop", tags=["shop"])
 
 MAX_QUANTITY = 10
 CURRENCY = "usd"
+
+# How long a meetup checkout holds its items. Stripe sessions live 30 minutes
+# at the least and 24 hours at the most; a pay link sent for an accepted offer
+# gets nearly the whole day.
+CHECKOUT_HOLD = timedelta(minutes=30)
+OFFER_LINK_HOLD = timedelta(hours=23)
+
+MEETUP_NOTE = (
+    "Pickup only, at a public meetup. You'll be contacted at the email or phone "
+    "you give here to arrange it."
+)
 
 
 def _flag(name: str) -> bool:
@@ -86,9 +112,98 @@ def _shop_post(db: Session, post_id: str) -> Post:
     except ValueError:
         raise HTTPException(status_code=404, detail="Product not found")
     post = db.query(Post).filter(Post.id == post_id, Post.category == "apparel").first()
-    if not post or not post.printify_product_id:
+    if not post or not (is_meetup(post) or post.printify_product_id):
         raise HTTPException(status_code=404, detail="Product not found")
     return post
+
+
+def is_meetup(post: Post) -> bool:
+    return post.listing_type == "meetup"
+
+
+def price_cents(post: Post) -> Optional[int]:
+    return int(round(float(post.price) * 100)) if post.price is not None else None
+
+
+def available_stock(db: Session, post: Post) -> int:
+    """A meetup item's stock, less what open checkouts are holding."""
+    held = (
+        db.query(func.coalesce(func.sum(ShopOrder.quantity), 0))
+        .filter(
+            ShopOrder.post_id == post.id,
+            ShopOrder.fulfillment == "meetup",
+            ShopOrder.status == "pending",
+            ShopOrder.expires_at > datetime.utcnow(),
+        )
+        .scalar()
+    )
+    return max(0, (post.stock or 0) - int(held))
+
+
+def _unix(naive_utc: datetime) -> int:
+    return int((naive_utc - datetime(1970, 1, 1)).total_seconds())
+
+
+def start_meetup_checkout(
+    db: Session,
+    post: Post,
+    quantity: int,
+    unit_cents: int,
+    hold: timedelta,
+    offer: Optional[ShopOffer] = None,
+):
+    """Open a Stripe Checkout session for a meetup item and hold the items.
+
+    Used both by "Buy now" (listed price, short hold) and by the pay link the
+    owner sends for an accepted offer (offer price, day-long hold).
+    """
+    client = _stripe()
+    order_id = uuid4()
+    expires_at = datetime.utcnow() + hold
+    product_data = {"name": post.title}
+    image = (post.gallery_urls or [None])[0] or post.thumbnail_url
+    if image and image.startswith("https://"):
+        product_data["images"] = [image]
+
+    params = {
+        "mode": "payment",
+        "client_reference_id": str(order_id),
+        "metadata": {"shop_order_id": str(order_id), "post_id": str(post.id)},
+        "line_items": [{
+            "quantity": quantity,
+            "price_data": {"currency": CURRENCY, "unit_amount": unit_cents, "product_data": product_data},
+        }],
+        "phone_number_collection": {"enabled": True},
+        "custom_text": {"submit": {"message": MEETUP_NOTE}},
+        "expires_at": _unix(expires_at),
+        "success_url": f"{_site_url()}/shop/success?session_id={{CHECKOUT_SESSION_ID}}",
+        "cancel_url": f"{_site_url()}/shop",
+    }
+    if offer and offer.email:
+        params["customer_email"] = offer.email
+    try:
+        session = client.v1.checkout.sessions.create(params=params)
+    except stripe.StripeError as exc:
+        logger.warning("[Shop] Stripe session create failed: %s", exc)
+        raise HTTPException(status_code=502, detail="Could not start checkout") from exc
+
+    db.add(ShopOrder(
+        id=order_id,
+        status="pending",
+        fulfillment="meetup",
+        payment_method="stripe",
+        stripe_session_id=session.id,
+        livemode=bool(session.livemode),
+        post_id=post.id,
+        offer_id=offer.id if offer else None,
+        quantity=quantity,
+        unit_price_cents=unit_cents,
+        shipping_cents=0,
+        currency=CURRENCY,
+        expires_at=expires_at,
+    ))
+    db.commit()
+    return session
 
 
 def _first_item_shipping(product: dict) -> Optional[int]:
@@ -138,15 +253,27 @@ def refresh_cached_price(post: Post) -> None:
 @router.get("/listing/{post_id}")
 def get_listing(post_id: str, db: Session = Depends(get_db)):
     post = _shop_post(db, post_id)
+    if is_meetup(post):
+        return {
+            "type": "meetup",
+            "title": post.title,
+            "price_cents": price_cents(post),
+            "available": available_stock(db, post),
+            "accepts_offers": bool(post.accepts_offers),
+            "fb_marketplace_url": post.fb_marketplace_url,
+            "max_quantity": MAX_QUANTITY,
+        }
     product = _printify_call(printify.get_product, post.printify_product_id, fresh=False)
     listing = printify.listing(product, _first_item_shipping(product))
+    listing["type"] = "printify"
     listing["ships_to"] = [printify.SHIP_COUNTRY]
     return listing
 
 
 class CheckoutRequest(BaseModel):
     post_id: str
-    variant_id: int
+    # Printify products only; a meetup item has no variants.
+    variant_id: Optional[int] = None
     quantity: int = Field(default=1, ge=1, le=MAX_QUANTITY)
 
 
@@ -154,6 +281,17 @@ class CheckoutRequest(BaseModel):
 def create_checkout(body: CheckoutRequest, db: Session = Depends(get_db)):
     client = _stripe()
     post = _shop_post(db, body.post_id)
+    if is_meetup(post):
+        unit = price_cents(post)
+        if not unit:
+            raise HTTPException(status_code=409, detail="This item has no price yet")
+        # Locked so two buyers can't both be handed the last one.
+        db.query(Post).filter(Post.id == post.id).with_for_update().first()
+        if available_stock(db, post) < body.quantity:
+            raise HTTPException(status_code=409, detail="Not enough left")
+        session = start_meetup_checkout(db, post, body.quantity, unit, CHECKOUT_HOLD)
+        return {"url": session.url}
+
     product = _printify_call(printify.get_product, post.printify_product_id)
 
     variant = printify.find_sellable_variant(product, body.variant_id)
@@ -232,6 +370,7 @@ def get_checkout(session_id: str, db: Session = Depends(get_db)):
         "quantity": order.quantity,
         "amount_total_cents": order.amount_total_cents,
         "currency": order.currency,
+        "fulfillment": order.fulfillment,
     }
 
 
@@ -279,6 +418,9 @@ def _fulfil(session: dict, livemode: bool) -> None:
         )
         if not order:
             logger.warning("[Shop] Paid session %s has no order row", session["id"])
+            return
+        if order.fulfillment == "meetup":
+            _fulfil_meetup(db, order, session, livemode)
             return
         if order.printify_order_id:
             return
@@ -333,6 +475,34 @@ def _fulfil(session: dict, livemode: bool) -> None:
             db.commit()
     finally:
         db.close()
+
+
+def _fulfil_meetup(db: Session, order: ShopOrder, session: dict, livemode: bool) -> None:
+    """Mark a meetup order paid and take its items out of stock, once."""
+    if order.status not in ("pending", "expired"):
+        return
+    contact = printify.address_to(session)
+    order.status = "paid"
+    order.livemode = livemode
+    order.amount_total_cents = session.get("amount_total")
+    order.email = contact["email"] or None
+    order.phone = contact["phone"] or None
+    payment_intent = session.get("payment_intent")
+    order.stripe_payment_intent_id = payment_intent if isinstance(payment_intent, str) else None
+
+    post = db.query(Post).filter(Post.id == order.post_id).with_for_update().first() if order.post_id else None
+    if post and post.stock is not None:
+        if post.stock < order.quantity:
+            # The hold should prevent this, but an item sold for cash meanwhile
+            # can still beat a slow payer to the last one.
+            order.error = f"Oversold: {post.stock} left when this was paid. Refund it or find another."
+        post.stock = max(0, post.stock - order.quantity)
+    if order.offer_id:
+        offer = db.query(ShopOffer).filter(ShopOffer.id == order.offer_id).first()
+        if offer:
+            offer.status = "paid"
+    db.commit()
+    logger.info("[Shop] Meetup order %s paid", order.id)
 
 
 def _expire(session_id: str) -> None:
@@ -452,14 +622,26 @@ def admin_update_variants(
 
 @router.get("/admin/orders")
 def admin_list_orders(limit: int = 50, db: Session = Depends(get_db), current_user=Depends(verify_firebase_token)):
-    orders = db.query(ShopOrder).filter(ShopOrder.status.notin_(("pending", "expired"))).order_by(ShopOrder.created_at.desc()).limit(limit).all()
+    orders = (
+        db.query(ShopOrder)
+        .filter(ShopOrder.status.notin_(("pending", "expired")))
+        .order_by(ShopOrder.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    post_ids = {o.post_id for o in orders if o.post_id}
+    titles = dict(db.query(Post.id, Post.title).filter(Post.id.in_(post_ids)).all()) if post_ids else {}
     return [
         {
             "id": str(o.id),
             "created_at": o.created_at.isoformat() if o.created_at else None,
             "status": o.status,
             "livemode": o.livemode,
+            "fulfillment": o.fulfillment,
+            "payment_method": o.payment_method,
+            "title": titles.get(o.post_id),
             "email": o.email,
+            "phone": o.phone,
             "variant_title": o.variant_title,
             "quantity": o.quantity,
             "amount_total_cents": o.amount_total_cents,

@@ -53,7 +53,9 @@ function OrderConfirmation() {
             is confirmed{order.amount_total_cents != null ? `: ${formatCents(order.amount_total_cents, order.currency)}` : ''}.
           </p>
           <p className="text-white/60 text-sm">
-            A receipt is on its way to your email. Each piece is printed to order, so it usually ships within a few business days.
+            {order.fulfillment === 'meetup'
+              ? "A receipt is on its way to your email. You'll be contacted at the email or phone you gave to set up a public meetup for pickup."
+              : 'A receipt is on its way to your email. Each piece is printed to order, so it usually ships within a few business days.'}
           </p>
         </>
       ) : failed || !sessionId ? (

@@ -799,6 +799,10 @@ export default function Feed({ directory, activeAlbum = 'all', category, useData
                   splash_image_url: selectedImage.rawPost.splash_image_url,
                   gallery_urls: selectedImage.rawPost.gallery_urls ?? [],
                   printify_product_id: selectedImage.rawPost.printify_product_id ?? null,
+                  listing_type: selectedImage.rawPost.listing_type ?? null,
+                  stock: selectedImage.rawPost.stock ?? null,
+                  accepts_offers: selectedImage.rawPost.accepts_offers ?? false,
+                  fb_marketplace_url: selectedImage.rawPost.fb_marketplace_url ?? null,
                 }
                 : undefined
             }

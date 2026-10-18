@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Minus, Plus } from 'lucide-react';
-import { formatCents, getShopListing, startCheckout, type ShopListing, type ShopVariant } from '@/lib/api';
+import { formatCents, getShopListing, startCheckout, type MeetupListing, type ShopListing, type ShopVariant } from '@/lib/api';
+import MeetupPanel from './MeetupPanel';
 
 const MAX_QUANTITY = 10;
 
@@ -12,27 +13,21 @@ interface BuyPanelProps {
   fallbackPrice?: string | null;
 }
 
+const buttonClass =
+  'inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-white font-semibold border border-white/20 shadow-md shadow-black/30 transition-all duration-200 w-full md:w-auto backdrop-blur-sm hover:border-white/50 hover:shadow-xl hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent';
+
 /**
- * Size/color picker and Buy button for a shop post.
- *
- * The listing comes from Printify via the backend, and only sellable variants
- * are in it. The price shown here is for the buyer's information only: the
- * backend re-reads it from Printify when it opens Stripe Checkout.
+ * How to buy a shop post: a Printify product's size/color picker, or a meetup
+ * item's Buy now / request panel, whichever the post sells.
  */
 export default function BuyPanel({ postId, fallbackPrice }: BuyPanelProps) {
-  const [listing, setListing] = useState<ShopListing | null | undefined>(undefined);
-  const [selected, setSelected] = useState<number[]>([]);
-  const [quantity, setQuantity] = useState(1);
-  const [isRedirecting, setIsRedirecting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [listing, setListing] = useState<ShopListing | MeetupListing | null | undefined>(undefined);
 
   useEffect(() => {
     let cancelled = false;
     getShopListing(postId)
       .then((result) => {
-        if (cancelled) return;
-        setListing(result);
-        if (result?.variants.length) setSelected(result.variants[0].options);
+        if (!cancelled) setListing(result);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -44,15 +39,51 @@ export default function BuyPanel({ postId, fallbackPrice }: BuyPanelProps) {
     };
   }, [postId]);
 
+  if (listing === undefined) {
+    return (
+      <button type="button" disabled className={buttonClass}>
+        Loading…
+        {fallbackPrice && <span className="text-sm font-medium text-white/80">{fallbackPrice}</span>}
+      </button>
+    );
+  }
+
+  if (listing?.type === 'meetup') {
+    return <MeetupPanel postId={postId} listing={listing} />;
+  }
+
+  if (!listing || listing.variants.length === 0) {
+    return (
+      <button type="button" disabled className={buttonClass} aria-label="Not available yet">
+        Coming soon
+      </button>
+    );
+  }
+
+  return <PrintifyBuy postId={postId} listing={listing} />;
+}
+
+/**
+ * Size/color picker and Buy button for a Printify product.
+ *
+ * Only sellable variants are in the listing. The price shown here is for the
+ * buyer's information only: the backend re-reads it from Printify when it
+ * opens Stripe Checkout.
+ */
+function PrintifyBuy({ postId, listing }: { postId: string; listing: ShopListing }) {
+  const [selected, setSelected] = useState<number[]>(listing.variants[0]?.options ?? []);
+  const [quantity, setQuantity] = useState(1);
+  const [isRedirecting, setIsRedirecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const variant: ShopVariant | undefined = useMemo(
-    () => listing?.variants.find((v) => v.options.length === selected.length && v.options.every((id) => selected.includes(id))),
+    () => listing.variants.find((v) => v.options.length === selected.length && v.options.every((id) => selected.includes(id))),
     [listing, selected],
   );
 
   // Picking a value keeps as many of the other choices as some variant allows,
   // so choosing a color never strands the buyer on a size it doesn't come in.
   const pick = (valueId: number) => {
-    if (!listing) return;
     const candidates = listing.variants.filter((v) => v.options.includes(valueId));
     const best = candidates
       .map((v) => ({ v, keep: v.options.filter((id) => selected.includes(id)).length }))
@@ -60,7 +91,7 @@ export default function BuyPanel({ postId, fallbackPrice }: BuyPanelProps) {
     if (best) setSelected(best.v.options);
   };
 
-  const isValueSellable = (valueId: number) => listing?.variants.some((v) => v.options.includes(valueId)) ?? false;
+  const isValueSellable = (valueId: number) => listing.variants.some((v) => v.options.includes(valueId));
 
   const handleBuy = async () => {
     if (!variant) return;
@@ -73,26 +104,6 @@ export default function BuyPanel({ postId, fallbackPrice }: BuyPanelProps) {
       setIsRedirecting(false);
     }
   };
-
-  const buttonClass =
-    'inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-white font-semibold border border-white/20 shadow-md shadow-black/30 transition-all duration-200 w-full md:w-auto backdrop-blur-sm hover:border-white/50 hover:shadow-xl hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent';
-
-  if (listing === undefined) {
-    return (
-      <button type="button" disabled className={buttonClass}>
-        Loading…
-        {fallbackPrice && <span className="text-sm font-medium text-white/80">{fallbackPrice}</span>}
-      </button>
-    );
-  }
-
-  if (!listing || listing.variants.length === 0) {
-    return (
-      <button type="button" disabled className={buttonClass} aria-label="Not available yet">
-        Coming soon
-      </button>
-    );
-  }
 
   return (
     <div className="space-y-5">
