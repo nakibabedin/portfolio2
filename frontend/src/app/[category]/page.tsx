@@ -1,5 +1,5 @@
 import SectionWithFeed from '@/components/sections/SectionWithFeed';
-import { getCategoryConfig } from '@/lib/categories';
+import { dbCategory, getCategoryConfig } from '@/lib/categories';
 import { notFound } from 'next/navigation';
 
 export const revalidate = 0;
@@ -22,7 +22,7 @@ export default async function CategoryPage({ params }: CategoryPageProps) {
     <SectionWithFeed
       title={config.title}
       directory={config.directory}
-      category={config.slug}
+      category={dbCategory(config)}
       categorySlug={config.slug}
       useDatabase={true}
     />

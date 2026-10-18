@@ -1,5 +1,5 @@
 import PostModalClient from '@/components/ui/PostModalClient';
-import { getCategoryConfig } from '@/lib/categories';
+import { dbCategory, getCategoryConfig } from '@/lib/categories';
 import { getPostBySlug } from '@/lib/api';
 import { notFound } from 'next/navigation';
 
@@ -22,7 +22,7 @@ export default async function PostModalPage({ params }: PostPageProps) {
   const albumSlug = decodeURIComponent(album);
   const post = await getPostBySlug(decodeURIComponent(slug)).catch(() => null);
 
-  if (!post || post.category !== config.slug || post.album !== albumSlug) {
+  if (!post || post.category !== dbCategory(config) || post.album !== albumSlug) {
     notFound();
   }
 
