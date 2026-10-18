@@ -22,6 +22,9 @@ class Post(Base):
     is_active = Column(Boolean, default=False)
     is_favorite = Column(Boolean, default=False)
     cross_post_albums = Column(ARRAY(Text), nullable=False, default=list)
+    # Shop posts: the Printify product this listing sells. Printify holds the
+    # variants and their prices; `price` above is a cached "from" price.
+    printify_product_id = Column(String(64), nullable=True)
     # Provenance for mirrored posts: 'w_notes' + the upstream note id. NULL for
     # posts authored here. The pair is uniquely indexed so ingest can upsert.
     source = Column(String(50), nullable=True)

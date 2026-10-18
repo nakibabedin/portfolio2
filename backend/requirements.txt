@@ -13,3 +13,6 @@ Pillow==11.0.0
 nh3==0.2.18
 # Server-to-server calls to the w_notes read API (note picker + embed).
 httpx==0.27.2
+
+# Shop checkout (hosted Checkout sessions + signed webhooks).
+stripe==15.6.1

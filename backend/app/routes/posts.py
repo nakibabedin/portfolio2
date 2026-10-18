@@ -14,6 +14,7 @@ from app.lib.s3 import delete_file_from_s3
 from app.lib.feed_order import feed_ordering
 from app.lib.firebase_auth import verify_firebase_token
 from app.lib import aiko_sync
+from app.routes.shop import refresh_cached_price
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +149,8 @@ async def create_post(
             data['splash_image_url'] = data.get('thumbnail_url')
 
     db_post = Post(**data)
+    if db_post.printify_product_id:
+        refresh_cached_price(db_post)
     db.add(db_post)
     db.commit()
     db.refresh(db_post)
@@ -195,6 +198,10 @@ async def update_post(
             db_post.splash_image_url = db_post.content_url
         elif not db_post.splash_image_url:
             db_post.splash_image_url = db_post.thumbnail_url
+
+    # Linking a shop post to a Printify product brings its "from" price along.
+    if update_payload.get('printify_product_id'):
+        refresh_cached_price(db_post)
  
     db.commit()
     db.refresh(db_post)
