@@ -34,6 +34,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => unsubscribe();
   }, []);
 
+  // ID tokens last an hour. Firebase renews them on its own timer, but that
+  // timer stalls while the tab is in the background or the machine sleeps, so
+  // the token held above can come back stale. getIdToken() renews it when it's
+  // close to expiring, and onIdTokenChanged then stores the new one.
+  useEffect(() => {
+    if (!user) return;
+
+    const refresh = () => {
+      user.getIdToken().catch((err) => console.error('[Auth] Token refresh failed:', err));
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', refresh);
+    const interval = window.setInterval(refresh, 10 * 60 * 1000);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', refresh);
+      window.clearInterval(interval);
+    };
+  }, [user]);
+
   const value = useMemo<AuthContextValue>(() => ({
     user,
     loading,
