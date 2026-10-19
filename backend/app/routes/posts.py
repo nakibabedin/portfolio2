@@ -241,6 +241,56 @@ async def update_post(
 
     return db_post
 
+# Post ids with an Instagram publish under way, so a double click can't start a
+# second one before the first has written instagram_media_id back.
+_instagram_in_flight: set[str] = set()
+
+@router.post("/{post_id}/instagram", response_model=PostResponse)
+async def publish_post_to_instagram(
+    post_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(verify_firebase_token),
+):
+    """Post an already-published photo to Instagram, through Aiko.
+
+    The same path a new photo takes on create, run on request for posts that
+    predate it or were created with the switch off. Waits for the result rather
+    than backgrounding it, so the admin sees whether it went out.
+    """
+    db_post = db.query(Post).filter(Post.id == post_id).first()
+    if not db_post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    snapshot = aiko_sync.snapshot(db_post)
+    ig_snapshot = instagram_sync.snapshot(db_post)
+    if db_post.instagram_media_id:
+        raise HTTPException(status_code=409, detail="Already posted to Instagram")
+    if not aiko_sync.should_mirror(snapshot):
+        raise HTTPException(status_code=400, detail="Only photos posted to Aiko can go to Instagram")
+    if not instagram_sync.should_publish(ig_snapshot):
+        raise HTTPException(status_code=400, detail="Only photo posts can go to Instagram")
+    if not (aiko_sync.is_configured() and instagram_sync.is_configured()):
+        raise HTTPException(status_code=503, detail="Aiko or Instagram isn't configured on the server")
+    if post_id in _instagram_in_flight:
+        raise HTTPException(status_code=409, detail="Already being posted to Instagram")
+
+    _instagram_in_flight.add(post_id)
+    try:
+        result = await instagram_sync.mirror_then_publish(snapshot, ig_snapshot)
+    finally:
+        _instagram_in_flight.discard(post_id)
+
+    if not result.get("ok"):
+        if result.get("error") == "aiko push failed":
+            detail = "Aiko didn't take this photo, so it wasn't posted to Instagram"
+        else:
+            detail = f"Instagram didn't take it: {result.get('error')}"
+        raise HTTPException(status_code=502, detail=detail)
+
+    # publish_and_record wrote the media id through its own session.
+    db.refresh(db_post)
+    return db_post
+
 @router.delete("/{post_id}")
 async def delete_post(
     post_id: str,

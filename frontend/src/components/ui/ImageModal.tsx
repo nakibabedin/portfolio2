@@ -31,7 +31,7 @@ interface ImageModalProps {
   price?: number | null;
   galleryUrls?: string[];
   canEdit?: boolean;
-  post?: Pick<Post, 'content_url' | 'thumbnail_url' | 'splash_image_url' | 'gallery_urls' | 'printify_product_id' | 'listing_type' | 'stock' | 'accepts_offers' | 'fb_marketplace_url'>;
+  post?: Pick<Post, 'content_url' | 'thumbnail_url' | 'splash_image_url' | 'gallery_urls' | 'printify_product_id' | 'listing_type' | 'stock' | 'accepts_offers' | 'fb_marketplace_url' | 'mirror_to_aiko' | 'instagram_media_id'>;
   isActive?: boolean;
   isFavorite?: boolean;
   crossPostAlbums?: string[];
@@ -587,6 +587,8 @@ export default function ImageModal({
                 stock: post?.stock ?? null,
                 acceptsOffers: post?.accepts_offers ?? false,
                 fbMarketplaceUrl: post?.fb_marketplace_url ?? null,
+                mirrorToAiko: post?.mirror_to_aiko ?? true,
+                instagramMediaId: post?.instagram_media_id ?? null,
               }}
               onUpdate={(updatedPost) => {
                 if (onUpdate) onUpdate(updatedPost);

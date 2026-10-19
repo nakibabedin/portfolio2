@@ -1006,6 +1006,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                         product rather than content. */}
                     {selectedSubject && selectedSubject !== 'shop' && (
                       <div className="mt-6">
+                        <div className="grid grid-cols-2 gap-2">
                         <button
                           type="button"
                           onClick={() => { setEmbedKind(embedKind === 'note' ? null : 'note'); setSelectedNoteId(''); }}
@@ -1024,7 +1025,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                         <button
                           type="button"
                           onClick={() => setEmbedKind(embedKind === 'now_playing' ? null : 'now_playing')}
-                          className={`mt-2 w-full p-3 rounded-lg border transition-colors flex items-center justify-center gap-2 ${embedKind === 'now_playing'
+                          className={`w-full p-3 rounded-lg border transition-colors flex items-center justify-center gap-2 ${embedKind === 'now_playing'
                             ? 'border-white bg-white/20 text-white'
                             : 'border-white/20 hover:border-white/50 bg-white/5 text-white/60'
                             }`}
@@ -1034,6 +1035,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                             {embedKind === 'now_playing' ? 'Embedding now playing' : 'Embed now playing'}
                           </span>
                         </button>
+                        </div>
                         {embedKind === 'now_playing' && (
                           <p className="mt-2 text-sm text-white/50">
                             Shows what&rsquo;s playing in mariposa, or what played last, live. Once per subject.
@@ -1512,6 +1514,8 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                     </div>
                   )}
 
+                  {/* Toggles and date, two to a row */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Active Project Toggle */}
                   {selectedSubject === 'projects' && (
                     <div className="flex items-center gap-3 p-4 bg-white/5 rounded-xl border border-white/10">
@@ -1520,7 +1524,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                           Active Project
                         </label>
                         <p className="text-sm text-white/60">
-                          Mark this project as currently active/in-progress
+                          Currently in progress
                         </p>
                       </div>
                       <button
@@ -1546,7 +1550,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                         Featured Post
                       </label>
                       <p className="text-sm text-white/60">
-                        Mark this as a major/featured post (larger tile)
+                        Larger tile in the feed
                       </p>
                     </div>
                     <button
@@ -1573,10 +1577,10 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                         </label>
                         <p className="text-sm text-white/60">
                           {mirrorToAiko
-                            ? 'Will be pinned on Aiko, and kept in sync when this post is edited'
+                            ? 'Pinned on Aiko, kept in sync'
                             : canPostToInstagram
-                              ? 'Will not be pinned on Aiko, so it will not go to Instagram either'
-                              : 'Will not be pinned on Aiko'}
+                              ? 'Not on Aiko, so not on Instagram'
+                              : 'Not pinned on Aiko'}
                         </p>
                       </div>
                       <button
@@ -1610,8 +1614,8 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                           {!mirrorToAiko
                             ? 'Needs Post to Aiko'
                             : postToInstagram
-                              ? 'Will publish to Instagram with this description and a link to the Aiko pin. This cannot be undone or edited from here.'
-                              : 'This photo will not be posted to Instagram'}
+                              ? 'Description + Aiko link. Cannot be undone.'
+                              : 'Not posting to Instagram'}
                         </p>
                       </div>
                       <button
@@ -1644,6 +1648,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                       className="w-full p-3 border border-white/30 bg-white/10 text-white rounded-lg focus:ring-2 focus:ring-white/50 focus:border-white/50"
                       required
                     />
+                  </div>
                   </div>
 
                   </>)}

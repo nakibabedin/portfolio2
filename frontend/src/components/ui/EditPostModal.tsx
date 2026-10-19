@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, FileUp } from 'lucide-react';
-import { type PostCreate, updatePost, getAlbumsByCategory, uploadImage } from '@/lib/api';
+import { type PostCreate, updatePost, getAlbumsByCategory, uploadImage, publishPostToInstagram } from '@/lib/api';
 import MarkdownEditor from './MarkdownEditor';
 import { useAuth } from '@/providers/AuthProvider';
 import ShopListingFields, { shopListingError, shopListingPayload, type ShopListingValue } from '@/components/ecommerce/ShopListingFields';
@@ -31,6 +31,8 @@ interface EditPostModalProps {
         stock?: number | null;
         acceptsOffers?: boolean;
         fbMarketplaceUrl?: string | null;
+        mirrorToAiko?: boolean;
+        instagramMediaId?: string | null;
     };
     onUpdate: (updatedPost: any) => void;
 }
@@ -55,7 +57,14 @@ export default function EditPostModal({
         is_major: post.isMajor,
         slug: post.slug,
         cross_post_albums: post.crossPostAlbums || [],
+        mirror_to_aiko: post.mirrorToAiko ?? true,
     });
+
+    // Posting an existing photo to Instagram is its own action, not part of
+    // Save: it goes out immediately and can't be taken back.
+    const [instagramMediaId, setInstagramMediaId] = useState(post.instagramMediaId ?? null);
+    const [isPostingToInstagram, setIsPostingToInstagram] = useState(false);
+    const [instagramError, setInstagramError] = useState<string | null>(null);
 
     // How a shop post is sold. Posts from before meetup items were Printify.
     const [shopListing, setShopListing] = useState<ShopListingValue>({
@@ -75,6 +84,11 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
     // Shown by the name the site uses: shop posts are stored as 'apparel'.
     const categoryTitle = getCategoryConfig(isShop ? 'shop' : formData.category)?.title ?? formData.category ?? '';
     const isProject = formData.category === 'projects';
+    const canMirrorToAiko = formData.category === 'art' || formData.category === 'photo';
+    // Judged on the saved post: the server publishes what's stored, not what's
+    // in this form, so an unsaved Aiko switch doesn't count yet.
+    const isSavedPhoto = post.category === 'photo' && formData.category === 'photo';
+    const savedToAiko = post.mirrorToAiko ?? true;
     // File posts (e.g. a resume PDF) keep the file itself in content_url.
     const isFilePost = post.postType === 'file' || /\.pdf$/i.test(post.contentUrl || '');
     const currentFileName = post.contentUrl ? decodeURIComponent(post.contentUrl.split('/').pop() || '') : '';
@@ -120,6 +134,28 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
             setFormData(prev => ({ ...prev, [name]: value === '' ? null : parseFloat(value) }));
         } else {
             setFormData(prev => ({ ...prev, [name]: value }));
+        }
+    };
+
+    const handlePostToInstagram = async () => {
+        if (!authToken) {
+            setInstagramError('You must be logged in to post to Instagram.');
+            return;
+        }
+        if (!window.confirm('Post this photo to Instagram now? It can\'t be deleted or edited from here afterwards.')) {
+            return;
+        }
+        setIsPostingToInstagram(true);
+        setInstagramError(null);
+        try {
+            const updated = await publishPostToInstagram(post.id, authToken);
+            setInstagramMediaId(updated.instagram_media_id ?? 'posted');
+            onUpdate(updated);
+        } catch (err: any) {
+            console.error('Failed to post to Instagram:', err);
+            setInstagramError(err.message || 'Failed to post to Instagram');
+        } finally {
+            setIsPostingToInstagram(false);
         }
     };
 
@@ -393,7 +429,56 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
                                                 <span className={`${formData.is_major ? 'translate-x-6' : 'translate-x-1'} inline-block h-4 w-4 transform rounded-full bg-white transition-transform`} />
                                             </button>
                                         </div>
+
+                                        {canMirrorToAiko && (
+                                            <div className="flex items-center gap-3 p-4 bg-white/5 rounded-xl border border-white/10">
+                                                <div className="flex-1">
+                                                    <label htmlFor="mirror_to_aiko" className="text-white font-medium block mb-1">Post to Aiko</label>
+                                                    <p className="text-sm text-white/60">
+                                                        {formData.mirror_to_aiko ? 'Pinned on Aiko and kept in sync' : 'Not on Aiko; saving removes the pin'}
+                                                    </p>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    role="switch"
+                                                    id="mirror_to_aiko"
+                                                    aria-checked={formData.mirror_to_aiko}
+                                                    onClick={() => setFormData(prev => ({ ...prev, mirror_to_aiko: !prev.mirror_to_aiko }))}
+                                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-white/40 ${formData.mirror_to_aiko ? 'bg-blue-500' : 'bg-white/20'}`}
+                                                >
+                                                    <span className={`${formData.mirror_to_aiko ? 'translate-x-6' : 'translate-x-1'} inline-block h-4 w-4 transform rounded-full bg-white transition-transform`} />
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
+
+                                    {/* Instagram — an action rather than a setting: it publishes
+                                        right away, through Aiko, and can't be undone. */}
+                                    {isSavedPhoto && (
+                                        <div className="flex items-center gap-3 p-4 bg-white/5 rounded-xl border border-white/10">
+                                            <div className="flex-1">
+                                                <p className="text-white font-medium mb-1">Instagram</p>
+                                                <p className="text-sm text-white/60">
+                                                    {instagramMediaId
+                                                        ? 'Posted to Instagram'
+                                                        : !savedToAiko || !formData.mirror_to_aiko
+                                                            ? 'Needs Post to Aiko on and saved first'
+                                                            : 'Not on Instagram yet. Posts with this description and a link to the Aiko pin.'}
+                                                </p>
+                                                {instagramError && <p className="text-sm text-red-300 mt-1">{instagramError}</p>}
+                                            </div>
+                                            {!instagramMediaId && (
+                                                <button
+                                                    type="button"
+                                                    onClick={handlePostToInstagram}
+                                                    disabled={isPostingToInstagram || isLoading || !savedToAiko || !formData.mirror_to_aiko}
+                                                    className="px-4 py-2 text-sm font-medium text-white bg-pink-500 hover:bg-pink-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                                                >
+                                                    {isPostingToInstagram ? 'Posting…' : 'Post to Instagram'}
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
 
                                 </div>
 

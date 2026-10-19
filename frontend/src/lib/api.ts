@@ -254,6 +254,24 @@ export async function updatePost(id: string, post: Partial<PostCreate>, authToke
   return response.json();
 }
 
+/**
+ * Post an already-published photo to Instagram (through Aiko). Waits for the
+ * publish to finish and returns the post with its instagram_media_id set.
+ */
+export async function publishPostToInstagram(id: string, authToken?: string): Promise<Post> {
+  const response = await fetch(`${POSTS_ENDPOINT}${id}/instagram`, {
+    method: 'POST',
+    headers: {
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+    },
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(apiErrorMessage(error, 'Failed to post to Instagram'));
+  }
+  return response.json();
+}
+
 export async function deletePost(id: string, authToken?: string): Promise<void> {
   console.log('[API] deletePost called with id:', id);
   console.log('[API] Delete URL:', `${POSTS_ENDPOINT}${id}`);
