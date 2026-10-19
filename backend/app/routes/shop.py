@@ -55,7 +55,7 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
 from app.database import SessionLocal, get_db
-from app.lib import printify
+from app.lib import notify, printify
 from app.lib.firebase_auth import verify_firebase_token
 from app.models.post import Post
 from app.models.shop_order import ShopOffer, ShopOrder
@@ -503,6 +503,7 @@ def _fulfil_meetup(db: Session, order: ShopOrder, session: dict, livemode: bool)
             offer.status = "paid"
     db.commit()
     logger.info("[Shop] Meetup order %s paid", order.id)
+    notify.meetup_paid(post.title if post else "Meetup item", order.quantity, order.amount_total_cents, order.email, order.phone, livemode)
 
 
 def _expire(session_id: str) -> None:

@@ -24,11 +24,12 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.lib import notify
 from app.lib.firebase_auth import verify_firebase_token
 from app.models.post import Post
 from app.models.shop_order import ShopOffer, ShopOrder
@@ -128,7 +129,12 @@ class OfferRequest(BaseModel):
 
 
 @router.post("/offers")
-def create_offer(body: OfferRequest, request: Request, db: Session = Depends(get_db)):
+def create_offer(
+    body: OfferRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     if body.website:
         return {"received": True}
     if not _allow(request.client.host if request.client else "unknown"):
@@ -155,7 +161,7 @@ def create_offer(body: OfferRequest, request: Request, db: Session = Depends(get
     if available_stock(db, post) < body.quantity:
         raise HTTPException(status_code=409, detail="Not enough left")
 
-    db.add(ShopOffer(
+    offer = ShopOffer(
         post_id=post.id,
         quantity=body.quantity,
         offer_cents=body.offer_cents,
@@ -163,8 +169,14 @@ def create_offer(body: OfferRequest, request: Request, db: Session = Depends(get
         email=email,
         phone=phone,
         message=(body.message or "").strip() or None,
-    ))
+    )
+    db.add(offer)
     db.commit()
+    # After the response, so a slow mail service never delays the buyer.
+    background_tasks.add_task(
+        notify.new_offer, post.title, offer.quantity, offer.offer_cents, price_cents(post),
+        offer.name, offer.email, offer.phone, offer.message,
+    )
     return {"received": True}
 
 
