@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, DateTime, func, Boolean, Numeric, Integer
+from sqlalchemy import Column, String, Text, DateTime, func, Boolean, Numeric, Integer, true
 from sqlalchemy.dialects.postgresql import UUID, ARRAY
 import uuid
 from app.database import Base
@@ -39,5 +39,9 @@ class Post(Base):
     # never published. Instagram has no delete or edit endpoint, so this is a
     # one-way record and the guard that stops a re-save from double-posting.
     instagram_media_id = Column(String(255), nullable=True)
+    # Whether an art/photo post is mirrored to Aiko. On unless switched off in
+    # the admin; Instagram publishing also requires it, since the Instagram
+    # caption links to the Aiko pin.
+    mirror_to_aiko = Column(Boolean, nullable=False, default=True, server_default=true())
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

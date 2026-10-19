@@ -11,11 +11,10 @@ Four rules follow from that:
 - **On create only, with an opt-out.** ``post_to_instagram`` defaults to True on
   ``PostCreate``, so a new photo post goes out automatically, but the admin can
   switch it off for one post. Edits never publish -- there is nothing to update.
-- **Aiko first.** The caption links to the post's Aiko pin, and that pin's id
-  only exists once Aiko has accepted the push. :func:`mirror_then_publish` runs
-  the two in order in one background task. If Aiko is down or rejects the image,
-  the caption falls back to the post's page on this site rather than holding
-  the Instagram post back.
+- **Only through Aiko.** The caption links to the post's Aiko pin, and that
+  pin's id only exists once Aiko has accepted the push. :func:`mirror_then_publish`
+  runs the two in order in one background task, and if the post isn't mirrored,
+  or Aiko is down or rejects the image, nothing goes to Instagram.
 - **Exactly once.** ``instagram_media_id`` is written back after a successful
   publish and is the guard against double-posting. A post that already carries
   one is skipped, so re-saving or re-running a backfill cannot duplicate it.
@@ -364,18 +363,18 @@ async def mirror_then_publish(aiko_post, ig_post) -> dict:
 
     Takes both modules' snapshots because each copies out different fields.
     Stands in for the route's usual Aiko push, so a post that also mirrors is
-    pushed once, not twice. Never raises.
+    pushed once, not twice. Instagram is skipped unless Aiko took the post: it
+    can't reach Instagram without going through Aiko. Never raises.
     """
-    link = None
-    if aiko_sync.should_mirror(aiko_post):
-        aiko_result = await aiko_sync.push_post(aiko_post)
-        if aiko_result.get("ok") and aiko_result.get("pin_id"):
-            link = aiko_sync.pin_url(aiko_result["pin_id"])
+    if not aiko_sync.should_mirror(aiko_post):
+        return {"ok": False, "error": "not mirrored to aiko"}
 
-    if not link:
-        # Aiko is unconfigured, unreachable, or rejected the image. The post's
-        # own page is the next-best place to send people.
-        link = aiko_sync._public_url(aiko_post)
-        logger.info("[instagram] no Aiko pin for post %s; linking %s instead", ig_post.id, link)
+    aiko_result = await aiko_sync.push_post(aiko_post)
+    if not (aiko_result.get("ok") and aiko_result.get("pin_id")):
+        logger.info(
+            "[instagram] skipping post %s: Aiko didn't take it (%s)",
+            ig_post.id, aiko_result.get("error"),
+        )
+        return {"ok": False, "error": "aiko push failed", "aiko": aiko_result}
 
-    return await publish_and_record(ig_post, link)
+    return await publish_and_record(ig_post, aiko_sync.pin_url(aiko_result["pin_id"]))

@@ -71,6 +71,7 @@ def snapshot(post) -> SimpleNamespace:
         content_url=post.content_url,
         thumbnail_url=post.thumbnail_url,
         slug=post.slug,
+        mirror_to_aiko=post.mirror_to_aiko,
     )
 
 
@@ -84,7 +85,12 @@ def should_mirror(post) -> bool:
     of the site's art and photo posts has it False while being live. Gating on
     it would mirror nothing, forever. A post existing here *is* it being
     published; the site has no draft state.
+
+    ``mirror_to_aiko`` is the admin's opt-out. Switching it off on an edit is a
+    transition out of the set like any other, so the pin comes down.
     """
+    if post.mirror_to_aiko is False:
+        return False
     if post.category not in MIRRORED_CATEGORIES:
         return False
     if (post.post_type or None) not in MIRRORED_POST_TYPES:

@@ -227,10 +227,14 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
   const isMusic = selectedSubject === 'music';
   const isShop = selectedSubject === 'shop';
   const isFilePost = selectedSubject === 'bio' && postType === 'file';
-  // Instagram only takes photo posts, matching the backend's eligibility check.
-  // On by default: new photos go out automatically unless switched off here.
+  // Art and photo mirror to Aiko; photos can go on from there to Instagram.
+  // Both on by default. Instagram is only reachable through Aiko, since its
+  // caption links to the Aiko pin, so switching Aiko off switches it off too.
+  const canMirrorToAiko = selectedSubject === 'art' || selectedSubject === 'photo';
+  const [mirrorToAiko, setMirrorToAiko] = useState(true);
   const canPostToInstagram = selectedSubject === 'photo';
   const [postToInstagram, setPostToInstagram] = useState(true);
+  const willPostToInstagram = canPostToInstagram && mirrorToAiko && postToInstagram;
   const [articleContent, setArticleContent] = useState('');
   const [isArticleImageUploading, setIsArticleImageUploading] = useState(false);
   const [splashImageFile, setSplashImageFile] = useState<File | null>(null);
@@ -856,10 +860,11 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
         is_active: isActive,
         post_type: selectedSubject === 'bio' ? postType : undefined,
         cross_post_albums: crossPostAlbums,
+        mirror_to_aiko: canMirrorToAiko ? mirrorToAiko : undefined,
         // Re-checked against the subject rather than sent raw: the toggle can be
         // switched on and then the subject changed out from under it, and this
         // is the one field where a stale true is not recoverable.
-        post_to_instagram: canPostToInstagram && postToInstagram,
+        post_to_instagram: willPostToInstagram,
       };
 
       if (isShop) {
@@ -888,6 +893,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
       setGalleryPreviews([]);
       setIsMajor(false);
       setIsActive(false);
+      setMirrorToAiko(true);
       setPostToInstagram(true);
       setAudioPreviewName('');
       setArticleContent('');
@@ -1558,32 +1564,68 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                     </button>
                   </div>
 
-                  {/* Instagram Toggle — photo only, and on by default.
+                  {/* Aiko Toggle — art and photo, on by default. */}
+                  {canMirrorToAiko && (
+                    <div className="flex items-center gap-3 p-4 bg-white/5 rounded-xl border border-white/10">
+                      <div className="flex-1">
+                        <label htmlFor="mirrorToAiko" className="text-white font-medium block mb-1">
+                          Post to Aiko
+                        </label>
+                        <p className="text-sm text-white/60">
+                          {mirrorToAiko
+                            ? 'Will be pinned on Aiko, and kept in sync when this post is edited'
+                            : canPostToInstagram
+                              ? 'Will not be pinned on Aiko, so it will not go to Instagram either'
+                              : 'Will not be pinned on Aiko'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        id="mirrorToAiko"
+                        aria-checked={mirrorToAiko}
+                        onClick={() => setMirrorToAiko(!mirrorToAiko)}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-white/40 ${mirrorToAiko ? 'bg-blue-500' : 'bg-white/20'
+                          }`}
+                      >
+                        <span
+                          className={`${mirrorToAiko ? 'translate-x-6' : 'translate-x-1'
+                            } inline-block h-4 w-4 transform rounded-full bg-white transition-transform`}
+                        />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Instagram Toggle — photo only, on by default, and only
+                      while Aiko is on: the caption links to the Aiko pin.
                       Worded plainly because it is the one switch in this form
                       that does something no later edit can take back. */}
                   {canPostToInstagram && (
-                    <div className="flex items-center gap-3 p-4 bg-white/5 rounded-xl border border-white/10">
+                    <div className={`flex items-center gap-3 p-4 bg-white/5 rounded-xl border border-white/10 ${mirrorToAiko ? '' : 'opacity-50'}`}>
                       <div className="flex-1">
                         <label htmlFor="postToInstagram" className="text-white font-medium block mb-1">
                           Post to Instagram
                         </label>
                         <p className="text-sm text-white/60">
-                          {postToInstagram
-                            ? 'Will publish to Instagram with this description and a link to the Aiko pin. This cannot be undone or edited from here.'
-                            : 'This photo will not be posted to Instagram'}
+                          {!mirrorToAiko
+                            ? 'Needs Post to Aiko'
+                            : postToInstagram
+                              ? 'Will publish to Instagram with this description and a link to the Aiko pin. This cannot be undone or edited from here.'
+                              : 'This photo will not be posted to Instagram'}
                         </p>
                       </div>
                       <button
                         type="button"
                         role="switch"
                         id="postToInstagram"
-                        aria-checked={postToInstagram}
+                        aria-checked={willPostToInstagram}
+                        disabled={!mirrorToAiko}
                         onClick={() => setPostToInstagram(!postToInstagram)}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-white/40 ${postToInstagram ? 'bg-pink-500' : 'bg-white/20'
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-white/40 disabled:cursor-not-allowed ${willPostToInstagram ? 'bg-pink-500' : 'bg-white/20'
                           }`}
                       >
                         <span
-                          className={`${postToInstagram ? 'translate-x-6' : 'translate-x-1'
+                          className={`${willPostToInstagram ? 'translate-x-6' : 'translate-x-1'
                             } inline-block h-4 w-4 transform rounded-full bg-white transition-transform`}
                         />
                       </button>

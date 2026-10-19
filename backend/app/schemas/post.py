@@ -24,14 +24,15 @@ class PostBase(BaseModel):
     stock: Optional[int] = Field(default=None, ge=0, description="Meetup items left")
     accepts_offers: bool = Field(default=False, description="Meetup item takes offers below the asking price")
     fb_marketplace_url: Optional[str] = Field(default=None, description="The same item on Facebook Marketplace")
+    mirror_to_aiko: bool = Field(default=True, description="Mirror this art/photo post to Aiko")
 
 class PostCreate(PostBase):
     slug: Optional[str] = Field(default=None, description="Custom slug override")
     # Not a column: a per-request instruction, popped before the Post is built.
-    # Defaults to False and has no equivalent on PostUpdate, because publishing
-    # to Instagram cannot be undone or edited through their API -- it happens
-    # once, at creation. On by default so new photos go out automatically; only
-    # photo posts are eligible, so for every other category this does nothing.
+    # Has no equivalent on PostUpdate, because publishing to Instagram cannot be
+    # undone or edited through their API -- it happens once, at creation. On by
+    # default so new photos go out automatically; it only takes effect for a
+    # photo post that is also mirrored to Aiko, and does nothing otherwise.
     post_to_instagram: bool = Field(
         default=True,
         description="Also publish this photo post to Instagram (one-way, cannot be undone)",
@@ -57,6 +58,7 @@ class PostUpdate(BaseModel):
     stock: Optional[int] = Field(default=None, ge=0)
     accepts_offers: Optional[bool] = None
     fb_marketplace_url: Optional[str] = None
+    mirror_to_aiko: Optional[bool] = None
     date: Optional[datetime] = None
     
     class Config:

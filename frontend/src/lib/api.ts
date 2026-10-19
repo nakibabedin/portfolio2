@@ -110,6 +110,8 @@ export interface Post {
   fb_marketplace_url?: string | null;
   /** Instagram's id for this post once published there; null if it never was. */
   instagram_media_id?: string | null;
+  /** Mirrored to Aiko (art/photo). Off means the admin opted this post out. */
+  mirror_to_aiko?: boolean;
 }
 
 export interface PostCreate {
@@ -141,6 +143,8 @@ export interface PostCreate {
    * its caption afterwards, so it is a one-time, irreversible choice.
    */
   post_to_instagram?: boolean;
+  /** Mirror this art/photo post to Aiko. Defaults to on; Instagram needs it. */
+  mirror_to_aiko?: boolean;
 }
 
 export async function getPosts(params?: {

@@ -164,13 +164,16 @@ async def create_post(
     # Mirror art/photo to Aiko, and new photos on to Instagram. Backgrounded so a
     # slow or unreachable Aiko or Instagram never delays — or fails — publishing
     # here. Instagram goes through mirror_then_publish, which does the Aiko push
-    # itself first so the caption can link to the pin it creates. Unlike the Aiko
-    # mirror there is no Instagram counterpart in update_post: Instagram exposes
-    # no way to delete a post or change its caption, so it happens once, here.
+    # itself first so the caption can link to the pin it creates, and only ever
+    # follows a mirrored post. Unlike the Aiko mirror there is no Instagram
+    # counterpart in update_post: Instagram exposes no way to delete a post or
+    # change its caption, so it happens once, here.
     snapshot = aiko_sync.snapshot(db_post)
     ig_snapshot = instagram_sync.snapshot(db_post)
     if (
         post_to_instagram
+        and aiko_sync.should_mirror(snapshot)
+        and aiko_sync.is_configured()
         and instagram_sync.is_configured()
         and instagram_sync.should_publish(ig_snapshot)
     ):
