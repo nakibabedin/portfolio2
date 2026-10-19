@@ -227,9 +227,10 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
   const isMusic = selectedSubject === 'music';
   const isShop = selectedSubject === 'shop';
   const isFilePost = selectedSubject === 'bio' && postType === 'file';
-  // Instagram only takes the image posts, matching the backend's eligibility check.
-  const canPostToInstagram = selectedSubject === 'art' || selectedSubject === 'photo';
-  const [postToInstagram, setPostToInstagram] = useState(false);
+  // Instagram only takes photo posts, matching the backend's eligibility check.
+  // On by default: new photos go out automatically unless switched off here.
+  const canPostToInstagram = selectedSubject === 'photo';
+  const [postToInstagram, setPostToInstagram] = useState(true);
   const [articleContent, setArticleContent] = useState('');
   const [isArticleImageUploading, setIsArticleImageUploading] = useState(false);
   const [splashImageFile, setSplashImageFile] = useState<File | null>(null);
@@ -887,7 +888,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
       setGalleryPreviews([]);
       setIsMajor(false);
       setIsActive(false);
-      setPostToInstagram(false);
+      setPostToInstagram(true);
       setAudioPreviewName('');
       setArticleContent('');
       setSplashImageFile(null);
@@ -1557,7 +1558,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                     </button>
                   </div>
 
-                  {/* Instagram Toggle — art and photo only, and off by default.
+                  {/* Instagram Toggle — photo only, and on by default.
                       Worded plainly because it is the one switch in this form
                       that does something no later edit can take back. */}
                   {canPostToInstagram && (
@@ -1568,8 +1569,8 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                         </label>
                         <p className="text-sm text-white/60">
                           {postToInstagram
-                            ? 'Will publish to Instagram with this title and description. This cannot be undone or edited from here.'
-                            : 'Also publish this image to Instagram when the post is created'}
+                            ? 'Will publish to Instagram with this description and a link to the Aiko pin. This cannot be undone or edited from here.'
+                            : 'This photo will not be posted to Instagram'}
                         </p>
                       </div>
                       <button

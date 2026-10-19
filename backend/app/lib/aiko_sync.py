@@ -112,6 +112,12 @@ def _public_url(post) -> Optional[str]:
     return f"{site_url}/{post.category}/{post.slug}"
 
 
+def pin_url(pin_id) -> str:
+    """The public Aiko page for a pin, as Aiko's own share button builds it."""
+    site_url = os.getenv("AIKO_PUBLIC_URL", "https://www.try-aiko.com").strip().rstrip("/")
+    return f"{site_url}/pin/{pin_id}"
+
+
 def _description(post) -> str:
     """Aiko shows a single description field."""
     return (post.description or "").strip()

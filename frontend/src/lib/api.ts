@@ -136,7 +136,7 @@ export interface PostCreate {
   accepts_offers?: boolean;
   fb_marketplace_url?: string | null;
   /**
-   * Also publish this art/photo post to Instagram. Create-only and absent from
+   * Publish this photo post to Instagram (defaults to on). Create-only and absent from
    * the edit form on purpose: Instagram has no API to delete a post or change
    * its caption afterwards, so it is a one-time, irreversible choice.
    */

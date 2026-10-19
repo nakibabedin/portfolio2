@@ -1,4 +1,4 @@
-"""Publish art and photo posts to Instagram, on request.
+"""Publish new photo posts to Instagram, captioned with a link to their Aiko pin.
 
 This is deliberately *not* shaped like :mod:`app.lib.aiko_sync`, even though the
 two do a similar-sounding job. Aiko is a mirror: it reconciles on every edit and
@@ -6,11 +6,16 @@ takes pins down when a post stops qualifying. Instagram cannot be mirrored --
 the Graph API has no endpoint to delete a published post or edit its caption, so
 a push here is one-way and permanent.
 
-Three rules follow from that:
+Four rules follow from that:
 
-- **Opt in, every time.** ``post_to_instagram`` defaults to False on
-  ``PostCreate``. Nothing reaches Instagram unless the admin flipped the toggle
-  for that specific post. There is no "mirror everything" mode, on purpose.
+- **On create only, with an opt-out.** ``post_to_instagram`` defaults to True on
+  ``PostCreate``, so a new photo post goes out automatically, but the admin can
+  switch it off for one post. Edits never publish -- there is nothing to update.
+- **Aiko first.** The caption links to the post's Aiko pin, and that pin's id
+  only exists once Aiko has accepted the push. :func:`mirror_then_publish` runs
+  the two in order in one background task. If Aiko is down or rejects the image,
+  the caption falls back to the post's page on this site rather than holding
+  the Instagram post back.
 - **Exactly once.** ``instagram_media_id`` is written back after a successful
   publish and is the guard against double-posting. A post that already carries
   one is skipped, so re-saving or re-running a backfill cannot duplicate it.
@@ -39,16 +44,17 @@ import httpx
 from PIL import Image
 
 from app.database import SessionLocal
+from app.lib import aiko_sync
 from app.lib.s3 import upload_file_to_s3
 from app.models.post import Post
 
 logger = logging.getLogger(__name__)
 
-# Same two image-holding categories the Aiko mirror uses.
-PUBLISHABLE_CATEGORIES = {"art", "photo"}
+# Photos only. Art reaches Aiko but not Instagram; add "art" here to change that.
+PUBLISHABLE_CATEGORIES = {"photo"}
 
-# Art and photo posts are created without a post_type in practice; the field is
-# only set for the audio/video/file posts other categories carry.
+# Photo posts are created without a post_type in practice; the field is only set
+# for the audio/video/file posts other categories carry.
 PUBLISHABLE_POST_TYPES = {None, "", "photo", "image"}
 
 # Instagram's feed limits. Outside this ratio range the container is rejected,
@@ -119,8 +125,8 @@ def _image_url(post) -> Optional[str]:
 def should_publish(post) -> bool:
     """Whether this post *can* go to Instagram -- not whether it was asked to.
 
-    The admin's toggle decides intent; this decides eligibility. An art or photo
-    post, with a fetchable image, that has not already been published.
+    The admin's toggle decides intent; this decides eligibility. A photo post,
+    with a fetchable image, that has not already been published.
     """
     if post.instagram_media_id:
         return False
@@ -133,15 +139,19 @@ def should_publish(post) -> bool:
     return bool(image_url and image_url.startswith(("http://", "https://")))
 
 
-def _caption(post) -> str:
-    """Title, then description. No link -- Instagram captions are not clickable,
-    so a bare URL is noise rather than navigation."""
-    title = (post.title or "").strip()
-    description = (post.description or "").strip()
-    caption = "\n\n".join(part for part in (title, description) if part)
-    if len(caption) > MAX_CAPTION:
-        caption = caption[: MAX_CAPTION - 1].rstrip() + "…"
-    return caption
+def _caption(post, link: Optional[str] = None) -> str:
+    """The description (or the title, when there is none), then the link.
+
+    Instagram renders caption URLs as plain text, not links, so this is there to
+    be read and typed or copied, not clicked. When the caption runs long the
+    text is trimmed rather than the link, since the link is the reason it's there.
+    """
+    text = (post.description or "").strip() or (post.title or "").strip()
+    link = (link or "").strip()
+    room = MAX_CAPTION - (len(link) + 2 if link else 0)
+    if len(text) > room:
+        text = text[: room - 1].rstrip() + "…"
+    return "\n\n".join(part for part in (text, link) if part)
 
 
 def _pad_to_aspect(img: Image.Image) -> Image.Image:
@@ -235,8 +245,8 @@ async def _wait_for_container(
     return "container never finished processing"
 
 
-async def publish_post(post) -> dict:
-    """Publish this post to Instagram. Never raises.
+async def publish_post(post, link: Optional[str] = None) -> dict:
+    """Publish this post to Instagram, with ``link`` closing the caption. Never raises.
 
     Returns an outcome dict -- ``{"ok": True, "media_id": ...}`` or
     ``{"ok": False, "error": ...}``. Callers fire this as a background task and
@@ -265,7 +275,7 @@ async def publish_post(post) -> dict:
                 f"{base_url}/{user_id}/media",
                 data={
                     "image_url": jpeg_url,
-                    "caption": _caption(post),
+                    "caption": _caption(post, link),
                     "access_token": token,
                 },
             )
@@ -313,14 +323,14 @@ async def publish_post(post) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
-async def publish_and_record(post) -> dict:
+async def publish_and_record(post, link: Optional[str] = None) -> dict:
     """Publish, then write the media id back so it can never post twice.
 
     The background task runs after the request's session is closed, so this
     opens its own. A failure to record is logged but not raised -- the post is
     already live on Instagram at that point and nothing here can undo it.
     """
-    result = await publish_post(post)
+    result = await publish_post(post, link)
     if not result.get("ok"):
         return result
 
@@ -347,3 +357,25 @@ async def publish_and_record(post) -> dict:
         )
 
     return result
+
+
+async def mirror_then_publish(aiko_post, ig_post) -> dict:
+    """Push to Aiko, then publish to Instagram linking to the pin Aiko made.
+
+    Takes both modules' snapshots because each copies out different fields.
+    Stands in for the route's usual Aiko push, so a post that also mirrors is
+    pushed once, not twice. Never raises.
+    """
+    link = None
+    if aiko_sync.should_mirror(aiko_post):
+        aiko_result = await aiko_sync.push_post(aiko_post)
+        if aiko_result.get("ok") and aiko_result.get("pin_id"):
+            link = aiko_sync.pin_url(aiko_result["pin_id"])
+
+    if not link:
+        # Aiko is unconfigured, unreachable, or rejected the image. The post's
+        # own page is the next-best place to send people.
+        link = aiko_sync._public_url(aiko_post)
+        logger.info("[instagram] no Aiko pin for post %s; linking %s instead", ig_post.id, link)
+
+    return await publish_and_record(ig_post, link)

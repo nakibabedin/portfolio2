@@ -29,11 +29,12 @@ class PostCreate(PostBase):
     slug: Optional[str] = Field(default=None, description="Custom slug override")
     # Not a column: a per-request instruction, popped before the Post is built.
     # Defaults to False and has no equivalent on PostUpdate, because publishing
-    # to Instagram cannot be undone or edited through their API -- it has to be
-    # a deliberate choice made once, at creation.
+    # to Instagram cannot be undone or edited through their API -- it happens
+    # once, at creation. On by default so new photos go out automatically; only
+    # photo posts are eligible, so for every other category this does nothing.
     post_to_instagram: bool = Field(
-        default=False,
-        description="Also publish this art/photo post to Instagram (one-way, cannot be undone)",
+        default=True,
+        description="Also publish this photo post to Instagram (one-way, cannot be undone)",
     )
 
 class PostUpdate(BaseModel):

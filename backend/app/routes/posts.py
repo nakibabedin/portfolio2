@@ -129,7 +129,10 @@ async def create_post(
     """Create a new post"""
     data = post.dict(exclude_unset=True)
     # An instruction for this request, not a column. Popped before Post(**data).
-    post_to_instagram = data.pop('post_to_instagram', False)
+    # Read off the model, not the dict: exclude_unset drops it when the client
+    # leaves it out, and leaving it out has to mean the schema's default (on).
+    data.pop('post_to_instagram', None)
+    post_to_instagram = post.post_to_instagram
 
     title = data.get('title')
     if not title:
@@ -158,25 +161,22 @@ async def create_post(
     db.commit()
     db.refresh(db_post)
 
-    # Mirror art/photo to Aiko. Backgrounded so a slow or unreachable Aiko never
-    # delays — or fails — publishing here.
+    # Mirror art/photo to Aiko, and new photos on to Instagram. Backgrounded so a
+    # slow or unreachable Aiko or Instagram never delays — or fails — publishing
+    # here. Instagram goes through mirror_then_publish, which does the Aiko push
+    # itself first so the caption can link to the pin it creates. Unlike the Aiko
+    # mirror there is no Instagram counterpart in update_post: Instagram exposes
+    # no way to delete a post or change its caption, so it happens once, here.
     snapshot = aiko_sync.snapshot(db_post)
-    if aiko_sync.should_mirror(snapshot):
+    ig_snapshot = instagram_sync.snapshot(db_post)
+    if (
+        post_to_instagram
+        and instagram_sync.is_configured()
+        and instagram_sync.should_publish(ig_snapshot)
+    ):
+        background_tasks.add_task(instagram_sync.mirror_then_publish, snapshot, ig_snapshot)
+    elif aiko_sync.should_mirror(snapshot):
         background_tasks.add_task(aiko_sync.push_post, snapshot)
-
-    # Instagram, only when this post was explicitly opted in. Unlike the Aiko
-    # mirror there is no reconcile-on-edit counterpart in update_post: Instagram
-    # exposes no way to delete a post or change its caption after publishing, so
-    # the push happens once, here, or not at all.
-    if post_to_instagram:
-        ig_snapshot = instagram_sync.snapshot(db_post)
-        if instagram_sync.should_publish(ig_snapshot):
-            background_tasks.add_task(instagram_sync.publish_and_record, ig_snapshot)
-        else:
-            logger.info(
-                "[instagram] skipping post %s: requested but not eligible (category=%s type=%s)",
-                db_post.id, db_post.category, db_post.post_type,
-            )
 
     return db_post
 
