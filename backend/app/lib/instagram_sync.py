@@ -68,6 +68,10 @@ MAX_WIDTH = 1440
 # Captions are capped at 2200 characters.
 MAX_CAPTION = 2200
 
+# A carousel holds 2 to 10 items through the API. The admin form stops a photo
+# group at 10, so the cap here only guards against a group edited by hand.
+MAX_CAROUSEL = 10
+
 # Fetching the image from S3 and rendering the container is Meta-side work; it
 # is usually instant for a photo but is allowed to be slow.
 _TIMEOUT = httpx.Timeout(120.0)
@@ -112,6 +116,7 @@ def snapshot(post) -> SimpleNamespace:
         post_type=post.post_type,
         content_url=post.content_url,
         thumbnail_url=post.thumbnail_url,
+        gallery_urls=list(post.gallery_urls or []),
         instagram_media_id=post.instagram_media_id,
     )
 
@@ -153,8 +158,13 @@ def _caption(post, link: Optional[str] = None) -> str:
     return "\n\n".join(part for part in (text, link) if part)
 
 
-def _pad_to_aspect(img: Image.Image) -> Image.Image:
-    """Letterbox the image onto white until its ratio is one Instagram accepts.
+def _clamp_aspect(aspect: float) -> float:
+    return min(max(aspect, MIN_ASPECT), MAX_ASPECT)
+
+
+def _pad_to_aspect(img: Image.Image, target: Optional[float] = None) -> Image.Image:
+    """Letterbox the image onto white until it has the ``target`` ratio, or by
+    default the nearest ratio Instagram accepts.
 
     Cropping would be the other option and is what most tools do, but this site
     is a portfolio -- silently trimming the edge off a piece of art is worse
@@ -162,26 +172,36 @@ def _pad_to_aspect(img: Image.Image) -> Image.Image:
     """
     width, height = img.size
     aspect = width / height
+    target = target if target is not None else _clamp_aspect(aspect)
 
-    if MIN_ASPECT <= aspect <= MAX_ASPECT:
+    if abs(aspect - target) < 0.005:
         return img
 
-    if aspect < MIN_ASPECT:
+    if aspect < target:
         # Too tall: widen the canvas.
-        target_width = int(round(height * MIN_ASPECT))
+        target_width = int(round(height * target))
         target_height = height
     else:
         # Too wide: heighten the canvas.
         target_width = width
-        target_height = int(round(width / MAX_ASPECT))
+        target_height = int(round(width / target))
 
     canvas = Image.new("RGB", (target_width, target_height), (255, 255, 255))
     canvas.paste(img, ((target_width - width) // 2, (target_height - height) // 2))
     return canvas
 
 
-def _prepare_jpeg(image_bytes: bytes, post_id: str) -> str:
+def _aspect_of(image_bytes: bytes) -> float:
+    with Image.open(io.BytesIO(image_bytes)) as img:
+        return img.width / img.height
+
+
+def _prepare_jpeg(image_bytes: bytes, name: str, target_aspect: Optional[float] = None) -> str:
     """Render an Instagram-acceptable JPEG into S3 and return its public URL.
+
+    ``target_aspect`` pads to that exact ratio, for carousels: Instagram crops
+    every item to the first one's shape, so padding them all to it first keeps
+    the edges of every photo in frame.
 
     Raises on failure; the caller turns that into a logged, non-fatal outcome.
     """
@@ -195,7 +215,7 @@ def _prepare_jpeg(image_bytes: bytes, post_id: str) -> str:
     elif img.mode != "RGB":
         img = img.convert("RGB")
 
-    img = _pad_to_aspect(img)
+    img = _pad_to_aspect(img, target_aspect)
 
     if img.width > MAX_WIDTH:
         ratio = MAX_WIDTH / img.width
@@ -206,7 +226,7 @@ def _prepare_jpeg(image_bytes: bytes, post_id: str) -> str:
 
     return upload_file_to_s3(
         file_content=buffer.getvalue(),
-        file_name=f"{post_id}.jpg",
+        file_name=f"{name}.jpg",
         content_type="image/jpeg",
         folder="instagram",
     )
@@ -257,47 +277,78 @@ async def publish_post(post, link: Optional[str] = None) -> dict:
 
     base_url, user_id, token = config
     post_id = str(post.id)
-    source_url = _image_url(post)
+    images = aiko_sync.group_images(post)[:MAX_CAROUSEL]
+    if not images:
+        return {"ok": False, "error": "no image"}
+
+    async def create_container(data: dict) -> tuple[Optional[str], Optional[dict]]:
+        """POST a media container and wait for Meta to finish with it.
+        Returns ``(container_id, None)`` or ``(None, failure outcome)``."""
+        create = await client.post(
+            f"{base_url}/{user_id}/media", data={**data, "access_token": token}
+        )
+        if create.status_code >= 400:
+            detail = create.text[:300]
+            logger.warning(
+                "[instagram] container failed for post %s: %s %s",
+                post_id, create.status_code, detail,
+            )
+            return None, {"ok": False, "status": create.status_code, "error": detail}
+        container_id = create.json().get("id")
+        if not container_id:
+            return None, {"ok": False, "error": "no container id returned"}
+        wait_error = await _wait_for_container(client, base_url, container_id, token)
+        if wait_error:
+            logger.warning("[instagram] post %s not publishable: %s", post_id, wait_error)
+            return None, {"ok": False, "error": wait_error}
+        return container_id, None
 
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
-            # 1. Pull the site's own image and re-render it as a JPEG Instagram
-            #    will accept. Done here rather than in the upload route so the
-            #    site keeps serving WebP and the conversion cost is only paid
-            #    by posts that actually go to Instagram.
-            source = await client.get(source_url)
-            source.raise_for_status()
-            jpeg_url = await asyncio.to_thread(_prepare_jpeg, source.content, post_id)
+            # 1. Pull the site's own images and re-render them as JPEGs
+            #    Instagram will accept. Done here rather than in the upload
+            #    route so the site keeps serving WebP and the conversion cost
+            #    is only paid by posts that actually go to Instagram.
+            sources = []
+            for url in images:
+                source = await client.get(url)
+                source.raise_for_status()
+                sources.append(source.content)
 
-            # 2. Create the media container.
-            create = await client.post(
-                f"{base_url}/{user_id}/media",
-                data={
-                    "image_url": jpeg_url,
-                    "caption": _caption(post, link),
-                    "access_token": token,
-                },
-            )
-            if create.status_code >= 400:
-                detail = create.text[:300]
-                logger.warning(
-                    "[instagram] container failed for post %s: %s %s",
-                    post_id, create.status_code, detail,
+            # 2. Create the media container: one image, or a carousel of child
+            #    containers padded to the first photo's (accepted) shape.
+            if len(sources) == 1:
+                jpeg_url = await asyncio.to_thread(_prepare_jpeg, sources[0], post_id)
+                container_id, failure = await create_container(
+                    {"image_url": jpeg_url, "caption": _caption(post, link)}
                 )
-                return {"ok": False, "status": create.status_code, "error": detail}
+                if failure:
+                    return failure
+            else:
+                target = _clamp_aspect(_aspect_of(sources[0]))
+                children = []
+                for index, content in enumerate(sources):
+                    jpeg_url = await asyncio.to_thread(
+                        _prepare_jpeg, content, f"{post_id}-{index + 1}", target
+                    )
+                    child_id, failure = await create_container(
+                        {"image_url": jpeg_url, "is_carousel_item": "true"}
+                    )
+                    if failure:
+                        return failure
+                    children.append(child_id)
 
-            container_id = create.json().get("id")
-            if not container_id:
-                return {"ok": False, "error": "no container id returned"}
-
-            # 3. Wait for Meta to finish fetching the JPEG.
-            wait_error = await _wait_for_container(client, base_url, container_id, token)
-            if wait_error:
-                logger.warning("[instagram] post %s not publishable: %s", post_id, wait_error)
-                return {"ok": False, "error": wait_error}
+                # 3. The carousel itself, which carries the caption.
+                container_id, failure = await create_container({
+                    "media_type": "CAROUSEL",
+                    "children": ",".join(children),
+                    "caption": _caption(post, link),
+                })
+                if failure:
+                    return failure
 
             # 4. Publish it. This is the irreversible step -- there is no API to
-            #    undo it, which is why the toggle defaults to off.
+            #    undo it.
             publish = await client.post(
                 f"{base_url}/{user_id}/media_publish",
                 data={"creation_id": container_id, "access_token": token},

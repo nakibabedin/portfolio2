@@ -305,17 +305,26 @@ async def delete_post(
 
     content_url = db_post.content_url
     thumbnail_url = db_post.thumbnail_url
-    was_mirrored = aiko_sync.should_mirror(aiko_sync.snapshot(db_post))
+    # A photo group's other photos were uploaded for it alone. Shop galleries
+    # are left as they always have been.
+    gallery_urls = [
+        u for u in (db_post.gallery_urls or [])
+        if db_post.category == 'photo' and u not in (content_url, thumbnail_url)
+    ]
+    aiko_snapshot = aiko_sync.snapshot(db_post)
+    was_mirrored = aiko_sync.should_mirror(aiko_snapshot)
 
     db.delete(db_post)
     db.commit()
 
     if was_mirrored:
-        background_tasks.add_task(aiko_sync.delete_post, post_id)
+        background_tasks.add_task(aiko_sync.delete_post, aiko_snapshot)
 
     # Delete associated assets from S3 (best-effort)
     delete_file_from_s3(content_url)
     if thumbnail_url and thumbnail_url != content_url:
         delete_file_from_s3(thumbnail_url)
+    for url in gallery_urls:
+        delete_file_from_s3(url)
     return {"message": "Post deleted successfully"}
 

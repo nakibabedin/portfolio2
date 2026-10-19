@@ -40,6 +40,9 @@ const EMPTY_SHOP_LISTING: ShopListingValue = {
 };
 
 /** "IMG_2481.jpeg" -> "IMG_2481". */
+// Instagram's carousel limit, so a whole group always fits in one post.
+const MAX_GROUP_PHOTOS = 10;
+
 function titleFromFileName(name: string): string {
   return name.replace(/\.[^.]+$/, '').trim();
 }
@@ -243,6 +246,10 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
   const [shopListing, setShopListing] = useState<ShopListingValue>(EMPTY_SHOP_LISTING);
   const [galleryFiles, setGalleryFiles] = useState<File[]>([]);
   const [galleryPreviews, setGalleryPreviews] = useState<string[]>([]);
+  // A photo post can be a group: its photos live in galleryFiles in the order
+  // they'll show, and the first is the cover (content, thumbnail, Aiko link).
+  const isPhoto = selectedSubject === 'photo';
+  const [dragPhotoIndex, setDragPhotoIndex] = useState<number | null>(null);
   const { token: authToken } = useAuth();
 
   // Album management
@@ -437,6 +444,32 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
 
     setError(null);
 
+    if (isPhoto) {
+      const images = Array.from(fileList).filter((file) => file.type.startsWith('image/'));
+      if (images.length === 0) {
+        setError('Please upload image files.');
+        return;
+      }
+      const existingKeys = new Set(galleryFiles.map((f) => `${f.name}-${f.size}`));
+      const fresh = images.filter((file) => !existingKeys.has(`${file.name}-${file.size}`));
+      const room = MAX_GROUP_PHOTOS - galleryFiles.length;
+      if (fresh.length > room) {
+        setError(`A photo post holds up to ${MAX_GROUP_PHOTOS} photos (Instagram's limit), so only the first ${Math.max(room, 0)} were added.`);
+      }
+      const added = fresh.slice(0, Math.max(room, 0));
+      e.target.value = '';
+      if (added.length === 0) return;
+
+      const previews = await Promise.all(added.map(readFileAsDataUrl));
+      const files = [...galleryFiles, ...added];
+      const allPreviews = [...galleryPreviews, ...previews];
+      setPhotoGroup(files, allPreviews);
+      if (!title.trim()) {
+        setTitle(titleFromFileName(files[0].name));
+      }
+      return;
+    }
+
     if (isShop) {
       const newFiles = Array.from(fileList).filter((file) => file.type.startsWith('image/'));
       if (newFiles.length === 0) {
@@ -537,6 +570,37 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
       setSplashImagePreview(result);
     };
     reader.readAsDataURL(file);
+  };
+
+  // Sets the photo group in one go, keeping the cover (the first photo) as the
+  // content file. Any earlier upload is dropped, since it may be of a photo
+  // that's no longer first.
+  const setPhotoGroup = (files: File[], previews: string[]) => {
+    setGalleryFiles(files);
+    setGalleryPreviews(previews);
+    setContentFile(files[0] || null);
+    setContentImagePreview(previews[0] || '');
+    setContentUrl('');
+    setThumbnailFile(null);
+    setAudioPreviewName('');
+  };
+
+  const movePhoto = (from: number, to: number) => {
+    if (from === to || to < 0 || to >= galleryFiles.length) return;
+    const files = [...galleryFiles];
+    const previews = [...galleryPreviews];
+    const [file] = files.splice(from, 1);
+    const [preview] = previews.splice(from, 1);
+    files.splice(to, 0, file);
+    previews.splice(to, 0, preview);
+    setPhotoGroup(files, previews);
+  };
+
+  const removePhoto = (index: number) => {
+    setPhotoGroup(
+      galleryFiles.filter((_, i) => i !== index),
+      galleryPreviews.filter((_, i) => i !== index),
+    );
   };
 
   const handleRemoveGalleryImage = (index: number) => {
@@ -817,6 +881,31 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
         }
       }
 
+      // The cover went up above like any single photo (and made the
+      // thumbnail); the rest of a group follow, in order.
+      if (isPhoto && galleryFiles.length > 1) {
+        setIsUploading(true);
+        try {
+          if (!authToken) {
+            throw new Error('You must be signed in to upload images.');
+          }
+          const rest: string[] = [];
+          for (const file of galleryFiles.slice(1)) {
+            const uploadResult = await uploadImage(file, resolvePrimaryFolder(), authToken);
+            rest.push(uploadResult.url);
+          }
+          galleryUrls = [uploadedContentUrl, ...rest];
+        } catch (err) {
+          console.error('[PostModal] Photo group upload error:', err);
+          setError(err instanceof Error ? err.message : 'Failed to upload photos');
+          setIsSubmitting(false);
+          setIsUploading(false);
+          return;
+        } finally {
+          setIsUploading(false);
+        }
+      }
+
       if (isMajor && splashImageFile) {
         try {
           console.log('[PostModal] Uploading splash image for featured post...');
@@ -869,6 +958,9 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
 
       if (isShop) {
         Object.assign(postData, shopListingPayload(shopListing));
+        postData.gallery_urls = galleryUrls;
+      }
+      if (isPhoto && galleryUrls.length > 1) {
         postData.gallery_urls = galleryUrls;
       }
 
@@ -1322,6 +1414,16 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                               <Upload className="w-8 h-8 text-white/60 mb-2 animate-pulse" />
                               <p className="text-sm text-white/80">Uploading...</p>
                             </>
+                          ) : isPhoto && galleryFiles.length > 0 ? (
+                            <>
+                              <Upload className="w-8 h-8 text-white mb-2" />
+                              <p className="text-sm text-white">
+                                {galleryFiles.length === 1 ? '1 photo' : `${galleryFiles.length} photos`}
+                              </p>
+                              <p className="text-xs text-white/60 mt-1">
+                                {galleryFiles.length < MAX_GROUP_PHOTOS ? 'Click to add more' : `That's the ${MAX_GROUP_PHOTOS}-photo limit`}
+                              </p>
+                            </>
                           ) : contentFile ? (
                             <>
                               <Upload className="w-8 h-8 text-white mb-2" />
@@ -1338,7 +1440,9 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                                     ? 'Click to upload or drag and drop audio'
                                     : selectedSubject === 'shop'
                                       ? 'Click to upload one or more product photos'
-                                      : isFilePost
+                                      : isPhoto
+                                        ? 'Click to upload one or more photos'
+                                        : isFilePost
                                         ? 'Click to upload file'
                                         : 'Click to upload or drag and drop'}
                               </p>
@@ -1349,7 +1453,9 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                                     ? 'PNG, JPG up to 10MB • Square or 3:2 recommended'
                                     : selectedSubject === 'shop'
                                       ? 'PNG, JPG up to 10MB • Add multiple angles'
-                                      : isFilePost
+                                      : isPhoto
+                                        ? `Up to ${MAX_GROUP_PHOTOS} photos • Several make a group`
+                                        : isFilePost
                                         ? 'Any file type up to 100MB'
                                         : 'PNG, JPG, GIF up to 100MB'}
                               </p>
@@ -1360,14 +1466,14 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                           type="file"
                           className="hidden"
                           accept={isMusic ? 'audio/*' : isFilePost ? '*/*' : 'image/*'}
-                          multiple={isShop}
+                          multiple={isShop || isPhoto}
                           onChange={handleContentFileSelect}
-                          disabled={isUploading}
+                          disabled={isUploading || (isPhoto && galleryFiles.length >= MAX_GROUP_PHOTOS)}
                         />
                       </label>
                     </div>
 
-                    {selectedSubject !== 'music' && !isShop && contentImagePreview && (
+                    {selectedSubject !== 'music' && !isShop && !isPhoto && contentImagePreview && (
                       <div className="mt-3">
                         <img
                           src={contentImagePreview}
@@ -1391,6 +1497,74 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                     {selectedSubject === 'music' && audioPreviewName && (
                       <div className="mt-3 text-sm text-white/80">
                         <p>{audioPreviewName}</p>
+                      </div>
+                    )}
+
+                    {isPhoto && galleryPreviews.length > 0 && (
+                      <div className="mt-4">
+                        {galleryPreviews.length > 1 && (
+                          <p className="text-sm text-white/70 mb-2">
+                            Drag to reorder. This is the order on the site and on Instagram; the first is the cover.
+                          </p>
+                        )}
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                          {galleryPreviews.map((preview, index) => (
+                            <div
+                              key={`${galleryFiles[index]?.name}-${galleryFiles[index]?.size}`}
+                              draggable={galleryPreviews.length > 1}
+                              onDragStart={() => setDragPhotoIndex(index)}
+                              onDragOver={(ev) => ev.preventDefault()}
+                              onDrop={(ev) => {
+                                ev.preventDefault();
+                                if (dragPhotoIndex !== null) movePhoto(dragPhotoIndex, index);
+                                setDragPhotoIndex(null);
+                              }}
+                              onDragEnd={() => setDragPhotoIndex(null)}
+                              className={`relative group rounded-lg ${galleryPreviews.length > 1 ? 'cursor-grab active:cursor-grabbing' : ''} ${dragPhotoIndex === index ? 'opacity-40' : ''}`}
+                            >
+                              <img
+                                src={preview}
+                                alt={`Photo ${index + 1}`}
+                                className={`w-full aspect-square object-cover rounded-lg border ${index === 0 ? 'border-white' : 'border-white/20'}`}
+                                draggable={false}
+                              />
+                              <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 text-xs font-medium bg-black/70 text-white rounded">
+                                {index === 0 ? 'Cover' : index + 1}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => removePhoto(index)}
+                                aria-label={`Remove photo ${index + 1}`}
+                                className="absolute top-1.5 right-1.5 p-1 bg-black/60 rounded-full text-white sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                              {/* Buttons too, for touch screens where dragging doesn't work */}
+                              {galleryPreviews.length > 1 && (
+                                <div className="absolute bottom-1.5 inset-x-1.5 flex justify-between sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                                  <button
+                                    type="button"
+                                    onClick={() => movePhoto(index, index - 1)}
+                                    disabled={index === 0}
+                                    aria-label={`Move photo ${index + 1} earlier`}
+                                    className="px-1.5 bg-black/60 rounded text-white text-sm disabled:invisible"
+                                  >
+                                    ‹
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => movePhoto(index, index + 1)}
+                                    disabled={index === galleryPreviews.length - 1}
+                                    aria-label={`Move photo ${index + 1} later`}
+                                    className="px-1.5 bg-black/60 rounded text-white text-sm disabled:invisible"
+                                  >
+                                    ›
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
 

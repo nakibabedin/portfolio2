@@ -803,6 +803,8 @@ export default function Feed({ directory, activeAlbum = 'all', category, useData
                   stock: selectedImage.rawPost.stock ?? null,
                   accepts_offers: selectedImage.rawPost.accepts_offers ?? false,
                   fb_marketplace_url: selectedImage.rawPost.fb_marketplace_url ?? null,
+                  mirror_to_aiko: selectedImage.rawPost.mirror_to_aiko ?? true,
+                  instagram_media_id: selectedImage.rawPost.instagram_media_id ?? null,
                 }
                 : undefined
             }

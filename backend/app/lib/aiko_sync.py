@@ -16,6 +16,7 @@ Two rules shape everything below:
   Otherwise a post pulled from the site would live on in Aiko forever.
 """
 
+import hashlib
 import logging
 import os
 from types import SimpleNamespace
@@ -72,6 +73,7 @@ def snapshot(post) -> SimpleNamespace:
         thumbnail_url=post.thumbnail_url,
         slug=post.slug,
         mirror_to_aiko=post.mirror_to_aiko,
+        gallery_urls=list(post.gallery_urls or []),
     )
 
 
@@ -110,6 +112,40 @@ def _image_url(post) -> Optional[str]:
     return (post.content_url or "").strip() or (post.thumbnail_url or "").strip() or None
 
 
+def group_images(post) -> list[str]:
+    """Every image this post publishes, in order: a photo group's photos, or
+    the one image of any other post.
+
+    A photo group keeps its photos in ``gallery_urls`` with the cover first (the
+    same URL as ``content_url``). Anything else -- including art, and the shop's
+    product galleries -- is a single image as far as Aiko and Instagram go.
+    """
+    cover = _image_url(post)
+    gallery = [u.strip() for u in (post.gallery_urls or []) if u and u.strip()]
+    if post.category == "photo" and len(gallery) > 1:
+        seen: set[str] = set()
+        images = [u for u in gallery if not (u in seen or seen.add(u))]
+        return [u for u in images if u.startswith(("http://", "https://"))]
+    return [cover] if cover else []
+
+
+def _source_ids(post) -> list[tuple[str, str]]:
+    """``(source_id, image_url)`` for each pin this post owns on Aiko.
+
+    A single image keeps the post id as its source id, as it always has, so
+    pins mirrored before groups existed are untouched. Each photo in a group is
+    its own pin, keyed by the post and the photo rather than its position, so
+    the key stays with the photo.
+    """
+    images = group_images(post)
+    if len(images) <= 1:
+        return [(str(post.id), url) for url in images]
+    return [
+        (f"{post.id}:{hashlib.sha1(url.encode()).hexdigest()[:16]}", url)
+        for url in images
+    ]
+
+
 def _public_url(post) -> Optional[str]:
     """The page on this site the Aiko pin should link back to."""
     site_url = os.getenv("PORTFOLIO_PUBLIC_URL", "").strip().rstrip("/")
@@ -130,25 +166,35 @@ def _description(post) -> str:
 
 
 async def push_post(post) -> dict:
-    """Create or refresh this post's pin on Aiko. Never raises.
+    """Create or refresh this post's pins on Aiko -- one, or one per photo in a
+    group. Never raises.
 
-    Returns an outcome dict — ``{"ok": True, "action": ...}`` or
-    ``{"ok": False, "error": ...}``. The route handlers fire this as a
-    background task and ignore the return; the backfill script uses it to
-    report per-post results.
+    Returns the cover's outcome dict — ``{"ok": True, "pin_id": ..., ...}`` or
+    ``{"ok": False, "error": ...}`` — since the cover's pin is the one the
+    Instagram caption links to. The other photos' failures are logged. The
+    route handlers fire this as a background task and ignore the return; the
+    backfill script uses it to report per-post results.
     """
     config = _config()
     if not config:
         return {"ok": False, "error": "mirror not configured"}
 
-    base_url, secret = config
-    source_id = str(post.id)
+    results = [
+        await _push_one(config, post, source_id, image_url)
+        for source_id, image_url in _source_ids(post)
+    ]
+    if not results:
+        return {"ok": False, "error": "no image"}
+    return results[0]
 
+
+async def _push_one(config: tuple[str, str], post, source_id: str, image_url: str) -> dict:
+    base_url, secret = config
     payload = {
         "source_id": source_id,
         "title": post.title,
         "description": _description(post),
-        "image_url": _image_url(post),
+        "image_url": image_url,
         "source_url": _public_url(post),
     }
 
@@ -180,8 +226,9 @@ async def push_post(post) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
-async def delete_post(post_id) -> None:
-    """Remove this post's pin from Aiko. Never raises.
+async def delete_post(post) -> None:
+    """Remove this post's pins from Aiko. Takes a snapshot, not an id: a photo
+    group's pins are keyed by its photos. Never raises.
 
     Safe to call for a post that was never mirrored; Aiko answers 404 and that
     is treated as success.
@@ -190,8 +237,12 @@ async def delete_post(post_id) -> None:
     if not config:
         return
 
+    for source_id, _ in _source_ids(post):
+        await _delete_one(config, source_id)
+
+
+async def _delete_one(config: tuple[str, str], source_id: str) -> None:
     base_url, secret = config
-    source_id = str(post_id)
 
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -225,4 +276,4 @@ async def sync_post(post, was_mirrored: bool) -> None:
     if should_mirror(post):
         await push_post(post)
     elif was_mirrored:
-        await delete_post(post.id)
+        await delete_post(post)

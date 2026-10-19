@@ -14,12 +14,53 @@ interface ImageTileProps {
     price?: number | null;
     isActive?: boolean;
     isFavorite?: boolean;
+    galleryUrls?: string[];
   };
   index: number;
 }
 
+const TILE_SIZES = "(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw";
+
+// A photo group fills its tile as a collage: two side by side, three as one
+// large and two stacked, four or more as a 2x2 with the rest counted on the
+// last cell.
+function Mosaic({ urls, title, eager }: { urls: string[]; title: string; eager: boolean }) {
+  const shown = urls.slice(0, 4);
+  const extra = urls.length - shown.length;
+  const layout =
+    shown.length === 2 ? 'grid-cols-2 grid-rows-1'
+      : shown.length === 3 ? 'grid-cols-3 grid-rows-2'
+        : 'grid-cols-2 grid-rows-2';
+
+  return (
+    <div className={`absolute inset-0 grid gap-0.5 ${layout}`}>
+      {shown.map((url, i) => (
+        <div
+          key={url}
+          className={`relative overflow-hidden ${shown.length === 3 && i === 0 ? 'col-span-2 row-span-2' : ''}`}
+        >
+          <Image
+            src={url}
+            alt={i === 0 ? title : `${title} (${i + 1})`}
+            fill
+            className="object-cover group-hover:scale-[1.02] transition-transform duration-300"
+            loading={eager && i === 0 ? "eager" : "lazy"}
+            sizes={shown.length === 3 && i === 0 ? TILE_SIZES : "(max-width: 768px) 50vw, (max-width: 1200px) 25vw, 17vw"}
+          />
+          {extra > 0 && i === shown.length - 1 && (
+            <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white text-xl font-semibold">
+              +{extra}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function ImageTile({ item, index }: ImageTileProps) {
   const isText = item.isText || (!item.image && item.category.toLowerCase() === 'bio');
+  const groupUrls = item.category === 'photo' ? (item.galleryUrls ?? []) : [];
 
   return (
     <div className="group cursor-pointer h-full">
@@ -31,6 +72,8 @@ export default function ImageTile({ item, index }: ImageTileProps) {
               <p className="text-sm text-white/70 line-clamp-4">{item.description}</p>
             </div>
           </div>
+        ) : groupUrls.length > 1 ? (
+          <Mosaic urls={groupUrls} title={item.title} eager={index === 0} />
         ) : (
           <Image
             src={item.image}
@@ -38,7 +81,7 @@ export default function ImageTile({ item, index }: ImageTileProps) {
             fill
             className="object-cover group-hover:scale-[1.02] transition-transform duration-300"
             loading={index === 0 ? "eager" : "lazy"}
-            sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+            sizes={TILE_SIZES}
           />
         )}
 
