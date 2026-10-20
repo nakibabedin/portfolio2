@@ -53,3 +53,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Terraform: state is remote; local caches and every file that holds secrets.
+terraform/.terraform/
+terraform/*.tfstate*
+terraform/terraform.tfvars
+terraform/*.auto.tfvars
+terraform/*.auto.tfvars.json
+terraform/*.env
+terraform/*.tfplan

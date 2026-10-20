@@ -1,0 +1,9 @@
+# Copy to terraform.tfvars. Secrets go elsewhere: the Cloudflare token in
+# TF_VAR_cloudflare_api_token (or secret.auto.tfvars), the app's env vars in
+# secrets.auto.tfvars.json (scripts/env_to_tfvars.py).
+
+cloudflare_zone_id    = "<rileydrcelik.com zone id>"
+cloudflare_account_id = "<account id>"
+
+# Set only for the move from Railway; clear it afterwards (see README).
+# migration_source_database_url = "postgresql://...@....proxy.rlwy.net:PORT/railway"

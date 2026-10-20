@@ -1,0 +1,3 @@
+# Run by bash inside Linux containers (and read by Terraform into a task
+# definition); a CRLF checkout would break both.
+*.sh text eol=lf
