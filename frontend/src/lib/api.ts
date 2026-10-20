@@ -1,6 +1,6 @@
 // API Client for backend communication
 
-const PRODUCTION_API_HOST = 'portfolio2-production-0509.up.railway.app';
+const PRODUCTION_API_HOST = 'api.rileydrcelik.com';
 const PRODUCTION_HOSTS = new Set(['www.rileydrcelik.com', 'rileydrcelik.com']);
 
 const rawApiValue =
@@ -15,12 +15,12 @@ const normalizeHost = (value: string): string => {
 };
 
 const resolveHost = (): string => {
-  // Vercel production → always use Railway host
+  // Vercel production → always use the production API
   if (process.env.VERCEL_ENV === 'production') {
     return PRODUCTION_API_HOST;
   }
 
-  // Browser on your real domain → use Railway host
+  // Browser on your real domain → use the production API
   if (typeof window !== 'undefined' && PRODUCTION_HOSTS.has(window.location.hostname)) {
     return PRODUCTION_API_HOST;
   }
