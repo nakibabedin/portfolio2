@@ -24,6 +24,15 @@ export PGTZ=UTC PGCONNECT_TIMEOUT=15
 master="${MASTER_URL/postgresql+asyncpg:\/\//postgresql://}"
 target="postgresql://${DB_NAME}:${DB_PASSWORD}@${DB_HOST}:5432/${DB_NAME}"
 
+# Railway's proxy can take longer than one connect timeout to answer once
+# nothing else is connected, which is exactly the state a final run starts in.
+for attempt in 1 2 3 4 5; do
+  psql "$SOURCE_URL" -XAtc 'select 1' > /dev/null 2>&1 && break
+  if (( attempt == 5 )); then echo "!! source unreachable" >&2; exit 1; fi
+  echo "== source not answering yet (attempt $attempt), retrying"
+  sleep 5
+done
+
 echo "== mode:   $MODE"
 echo "== source: Postgres $(psql "$SOURCE_URL" -XAtc 'show server_version')"
 echo "== target: Postgres $(psql "$master" -XAtc 'show server_version')"
