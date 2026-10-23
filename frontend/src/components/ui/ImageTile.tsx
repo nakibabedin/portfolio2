@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { Images } from 'lucide-react';
+import { Copy } from 'lucide-react';
 
 interface ImageTileProps {
   item: {
@@ -57,9 +57,9 @@ export default function ImageTile({ item, index }: ImageTileProps) {
               </div>
             )}
             {isGallery && (
-              <Images
+              <Copy
                 aria-label="Gallery"
-                className="w-5 h-5 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]"
+                className="w-5 h-5 text-white/60 group-hover:text-white transition-colors duration-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]"
                 strokeWidth={2}
               />
             )}
