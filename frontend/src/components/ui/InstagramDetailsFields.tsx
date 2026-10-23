@@ -5,7 +5,7 @@ import { X } from 'lucide-react';
 import { getInstagramLocations, type InstagramDetails, type InstagramLocation } from '@/lib/api';
 
 /** Pre-filled on every new photo going to Instagram; edit them per post. */
-export const DEFAULT_INSTAGRAM_HASHTAGS = ['photography', 'sonynex5n', 'lightroom'];
+export const DEFAULT_INSTAGRAM_HASHTAGS = ['photography', 'sonyalpha', 'lightroom'];
 
 // Instagram's own limits.
 const MAX_HASHTAGS = 30;
