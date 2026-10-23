@@ -805,6 +805,10 @@ export default function Feed({ directory, activeAlbum = 'all', category, useData
                   fb_marketplace_url: selectedImage.rawPost.fb_marketplace_url ?? null,
                   mirror_to_aiko: selectedImage.rawPost.mirror_to_aiko ?? true,
                   instagram_media_id: selectedImage.rawPost.instagram_media_id ?? null,
+                  instagram_hashtags: selectedImage.rawPost.instagram_hashtags ?? [],
+                  instagram_collaborators: selectedImage.rawPost.instagram_collaborators ?? [],
+                  instagram_location_id: selectedImage.rawPost.instagram_location_id ?? null,
+                  instagram_location_name: selectedImage.rawPost.instagram_location_name ?? null,
                 }
                 : undefined
             }

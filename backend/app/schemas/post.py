@@ -1,9 +1,83 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 from typing import Literal, Optional, List
 from uuid import UUID
+import re
 
-class PostBase(BaseModel):
+# Instagram's own limits: 30 hashtags a post, 3 invited collaborators.
+MAX_INSTAGRAM_HASHTAGS = 30
+MAX_INSTAGRAM_COLLABORATORS = 3
+_INSTAGRAM_USERNAME = re.compile(r"^[a-z0-9._]{1,30}$")
+_FACEBOOK_PAGE_ID = re.compile(r"^\d{5,20}$")
+
+
+def _clean_hashtags(tags: Optional[List[str]]) -> Optional[List[str]]:
+    """Bare hashtags: no '#', nothing Instagram would cut the tag short at
+    (it ends a hashtag at the first character that isn't a letter, digit or
+    underscore), no case-insensitive repeats."""
+    if tags is None:
+        return None
+    cleaned, seen = [], set()
+    for tag in tags:
+        tag = re.sub(r"\W", "", tag or "")
+        if tag and tag.lower() not in seen:
+            seen.add(tag.lower())
+            cleaned.append(tag)
+    if len(cleaned) > MAX_INSTAGRAM_HASHTAGS:
+        raise ValueError(f"Instagram allows at most {MAX_INSTAGRAM_HASHTAGS} hashtags")
+    return cleaned
+
+
+def _clean_collaborators(names: Optional[List[str]]) -> Optional[List[str]]:
+    if names is None:
+        return None
+    cleaned = []
+    for name in names:
+        name = (name or "").strip().lstrip("@").lower()
+        if not name:
+            continue
+        if not _INSTAGRAM_USERNAME.match(name):
+            raise ValueError(f"'{name}' isn't an Instagram username")
+        if name not in cleaned:
+            cleaned.append(name)
+    if len(cleaned) > MAX_INSTAGRAM_COLLABORATORS:
+        raise ValueError(f"Instagram allows at most {MAX_INSTAGRAM_COLLABORATORS} collaborators")
+    return cleaned
+
+
+def _clean_location_id(value: Optional[str]) -> Optional[str]:
+    value = (value or "").strip()
+    if not value:
+        return None
+    if not _FACEBOOK_PAGE_ID.match(value):
+        raise ValueError("The location must be a Facebook place page id (digits only)")
+    return value
+
+
+class InstagramFields(BaseModel):
+    """Validation shared by the create and update schemas."""
+
+    @field_validator("instagram_hashtags", check_fields=False)
+    @classmethod
+    def _hashtags(cls, v):
+        return _clean_hashtags(v)
+
+    @field_validator("instagram_collaborators", check_fields=False)
+    @classmethod
+    def _collaborators(cls, v):
+        return _clean_collaborators(v)
+
+    @field_validator("instagram_location_id", check_fields=False)
+    @classmethod
+    def _location_id(cls, v):
+        return _clean_location_id(v)
+
+    @field_validator("instagram_location_name", check_fields=False)
+    @classmethod
+    def _location_name(cls, v):
+        return (v or "").strip() or None
+
+class PostBase(InstagramFields):
     category: str = Field(..., description="Category: art, photo, music, projects, bio, apparel")
     album: str = Field(..., description="Album within category")
     title: str = Field(..., max_length=255)
@@ -25,6 +99,10 @@ class PostBase(BaseModel):
     accepts_offers: bool = Field(default=False, description="Meetup item takes offers below the asking price")
     fb_marketplace_url: Optional[str] = Field(default=None, description="The same item on Facebook Marketplace")
     mirror_to_aiko: bool = Field(default=True, description="Mirror this art/photo post to Aiko")
+    instagram_hashtags: List[str] = Field(default_factory=list, description="Hashtags for the Instagram caption, without '#'")
+    instagram_collaborators: List[str] = Field(default_factory=list, description="Instagram usernames invited to co-author the post")
+    instagram_location_id: Optional[str] = Field(default=None, description="Facebook place page id Instagram tags as the location")
+    instagram_location_name: Optional[str] = Field(default=None, max_length=255, description="That place's name, for the admin form")
 
 class PostCreate(PostBase):
     slug: Optional[str] = Field(default=None, description="Custom slug override")
@@ -38,7 +116,7 @@ class PostCreate(PostBase):
         description="Also publish this photo post to Instagram (one-way, cannot be undone)",
     )
 
-class PostUpdate(BaseModel):
+class PostUpdate(InstagramFields):
     category: Optional[str] = None
     album: Optional[str] = None
     title: Optional[str] = None
@@ -59,6 +137,10 @@ class PostUpdate(BaseModel):
     accepts_offers: Optional[bool] = None
     fb_marketplace_url: Optional[str] = None
     mirror_to_aiko: Optional[bool] = None
+    instagram_hashtags: Optional[List[str]] = None
+    instagram_collaborators: Optional[List[str]] = None
+    instagram_location_id: Optional[str] = None
+    instagram_location_name: Optional[str] = Field(default=None, max_length=255)
     date: Optional[datetime] = None
     
     class Config:

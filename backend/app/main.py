@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 from dotenv import load_dotenv
 from app.routes import posts, upload, albums, notes_ingest, presence, live, shop, shop_meetup
+from app.lib import schema_upgrades
 
 # Load environment variables
 load_dotenv()
@@ -14,6 +15,10 @@ app = FastAPI(
     description="Backend API for portfolio website",
     version="1.0.0"
 )
+
+@app.on_event("startup")
+def _apply_schema_upgrades():
+    schema_upgrades.apply()
 
 # CORS middleware (allow frontend to connect)
 default_origins = [

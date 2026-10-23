@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, FileUp } from 'lucide-react';
-import { type PostCreate, updatePost, getAlbumsByCategory, uploadImage, publishPostToInstagram } from '@/lib/api';
+import { type InstagramDetails, type PostCreate, updatePost, getAlbumsByCategory, uploadImage, publishPostToInstagram } from '@/lib/api';
+import InstagramDetailsFields, { instagramDetailsError, instagramDetailsPayload, instagramDetailsValue } from './InstagramDetailsFields';
 import MarkdownEditor from './MarkdownEditor';
 import { useAuth } from '@/providers/AuthProvider';
 import ShopListingFields, { shopListingError, shopListingPayload, type ShopListingValue } from '@/components/ecommerce/ShopListingFields';
@@ -33,6 +34,7 @@ interface EditPostModalProps {
         fbMarketplaceUrl?: string | null;
         mirrorToAiko?: boolean;
         instagramMediaId?: string | null;
+        instagramDetails?: Partial<InstagramDetails> | null;
     };
     onUpdate: (updatedPost: any) => void;
 }
@@ -65,6 +67,7 @@ export default function EditPostModal({
     const [instagramMediaId, setInstagramMediaId] = useState(post.instagramMediaId ?? null);
     const [isPostingToInstagram, setIsPostingToInstagram] = useState(false);
     const [instagramError, setInstagramError] = useState<string | null>(null);
+    const [instagramDetails, setInstagramDetails] = useState(() => instagramDetailsValue(post.instagramDetails));
 
     // How a shop post is sold. Posts from before meetup items were Printify.
     const [shopListing, setShopListing] = useState<ShopListingValue>({
@@ -89,6 +92,8 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
     // in this form, so an unsaved Aiko switch doesn't count yet.
     const isSavedPhoto = post.category === 'photo' && formData.category === 'photo';
     const savedToAiko = post.mirrorToAiko ?? true;
+    // Only editable until the post is on Instagram: nothing reads them after.
+    const editsInstagramDetails = isSavedPhoto && !instagramMediaId && !!formData.mirror_to_aiko;
     // File posts (e.g. a resume PDF) keep the file itself in content_url.
     const isFilePost = post.postType === 'file' || /\.pdf$/i.test(post.contentUrl || '');
     const currentFileName = post.contentUrl ? decodeURIComponent(post.contentUrl.split('/').pop() || '') : '';
@@ -142,12 +147,19 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
             setInstagramError('You must be logged in to post to Instagram.');
             return;
         }
+        const detailsError = instagramDetailsError(instagramDetails);
+        if (detailsError) {
+            setInstagramError(detailsError);
+            return;
+        }
         if (!window.confirm('Post this photo to Instagram now? It can\'t be deleted or edited from here afterwards.')) {
             return;
         }
         setIsPostingToInstagram(true);
         setInstagramError(null);
         try {
+            // The server publishes what's stored, so the details go in first.
+            await updatePost(post.id, instagramDetailsPayload(instagramDetails), authToken);
             const updated = await publishPostToInstagram(post.id, authToken);
             setInstagramMediaId(updated.instagram_media_id ?? 'posted');
             onUpdate(updated);
@@ -189,6 +201,16 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
         // For projects, include the article content as content_url
         if (isProject) {
             submitData.content_url = articleContent;
+        }
+
+        if (editsInstagramDetails) {
+            const detailsError = instagramDetailsError(instagramDetails);
+            if (detailsError) {
+                setError(detailsError);
+                setIsLoading(false);
+                return;
+            }
+            Object.assign(submitData, instagramDetailsPayload(instagramDetails));
         }
 
         try {
@@ -478,6 +500,14 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
                                                 </button>
                                             )}
                                         </div>
+                                    )}
+
+                                    {editsInstagramDetails && (
+                                        <InstagramDetailsFields
+                                            value={instagramDetails}
+                                            onChange={(patch) => setInstagramDetails(prev => ({ ...prev, ...patch }))}
+                                            authToken={authToken}
+                                        />
                                     )}
 
                                 </div>

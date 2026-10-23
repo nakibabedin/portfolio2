@@ -34,6 +34,7 @@ carrying another column and another delete path for them.
 
 import asyncio
 import io
+import json
 import logging
 import os
 from types import SimpleNamespace
@@ -118,6 +119,9 @@ def snapshot(post) -> SimpleNamespace:
         thumbnail_url=post.thumbnail_url,
         gallery_urls=list(post.gallery_urls or []),
         instagram_media_id=post.instagram_media_id,
+        instagram_hashtags=list(post.instagram_hashtags or []),
+        instagram_collaborators=list(post.instagram_collaborators or []),
+        instagram_location_id=post.instagram_location_id,
     )
 
 
@@ -143,19 +147,44 @@ def should_publish(post) -> bool:
     return bool(image_url and image_url.startswith(("http://", "https://")))
 
 
+def _hashtag_line(post) -> str:
+    return " ".join(f"#{tag}" for tag in (getattr(post, "instagram_hashtags", None) or []))
+
+
 def _caption(post, link: Optional[str] = None) -> str:
-    """The description (or the title, when there is none), then the link.
+    """The description (or the title, when there is none), the link, then the
+    hashtags.
 
     Instagram renders caption URLs as plain text, not links, so this is there to
     be read and typed or copied, not clicked. When the caption runs long the
-    text is trimmed rather than the link, since the link is the reason it's there.
+    text is trimmed rather than the link or the hashtags, since those are the
+    reason the caption is there.
     """
     text = (post.description or "").strip() or (post.title or "").strip()
-    link = (link or "").strip()
-    room = MAX_CAPTION - (len(link) + 2 if link else 0)
+    tail = [part for part in ((link or "").strip(), _hashtag_line(post)) if part]
+    room = MAX_CAPTION - sum(len(part) + 2 for part in tail)
     if len(text) > room:
-        text = text[: room - 1].rstrip() + "…"
-    return "\n\n".join(part for part in (text, link) if part)
+        text = text[: max(room - 1, 0)].rstrip() + "…"
+    return "\n\n".join(part for part in (text, *tail) if part)
+
+
+def _discovery_params(post) -> dict:
+    """Location and collaborators, for the container that carries the caption
+    (a single image, or the carousel itself -- never a carousel item).
+
+    Collaborators get an invite from the publishing account when the post goes
+    out, and show as co-authors once they accept. Instagram checks the
+    usernames when the container is created and rejects private or missing
+    accounts there.
+    """
+    params = {}
+    location_id = getattr(post, "instagram_location_id", None)
+    if location_id:
+        params["location_id"] = location_id
+    collaborators = getattr(post, "instagram_collaborators", None) or []
+    if collaborators:
+        params["collaborators"] = json.dumps(list(collaborators))
+    return params
 
 
 def _clamp_aspect(aspect: float) -> float:
@@ -303,6 +332,20 @@ async def publish_post(post, link: Optional[str] = None) -> dict:
             return None, {"ok": False, "error": wait_error}
         return container_id, None
 
+    async def create_captioned_container(data: dict) -> tuple[Optional[str], Optional[dict]]:
+        """The container that carries the caption, with location and
+        collaborators. If Instagram turns those down (a collaborator who went
+        private, a location id that isn't a place page) the post goes out
+        without them rather than not at all."""
+        extras = _discovery_params(post)
+        container_id, failure = await create_container({**data, **extras})
+        if failure and extras:
+            logger.warning(
+                "[instagram] retrying post %s without %s", post_id, ", ".join(sorted(extras))
+            )
+            container_id, failure = await create_container(data)
+        return container_id, failure
+
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
             # 1. Pull the site's own images and re-render them as JPEGs
@@ -319,7 +362,7 @@ async def publish_post(post, link: Optional[str] = None) -> dict:
             #    containers padded to the first photo's (accepted) shape.
             if len(sources) == 1:
                 jpeg_url = await asyncio.to_thread(_prepare_jpeg, sources[0], post_id)
-                container_id, failure = await create_container(
+                container_id, failure = await create_captioned_container(
                     {"image_url": jpeg_url, "caption": _caption(post, link)}
                 )
                 if failure:
@@ -339,7 +382,7 @@ async def publish_post(post, link: Optional[str] = None) -> dict:
                     children.append(child_id)
 
                 # 3. The carousel itself, which carries the caption.
-                container_id, failure = await create_container({
+                container_id, failure = await create_captioned_container({
                     "media_type": "CAROUSEL",
                     "children": ",".join(children),
                     "caption": _caption(post, link),

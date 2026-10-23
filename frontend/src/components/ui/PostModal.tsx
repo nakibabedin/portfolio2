@@ -20,6 +20,7 @@ import { getAvailableNotes, embedNote, embedNowPlaying, type AvailableNote, crea
 import MarkdownEditor from './MarkdownEditor';
 import { useAuth } from '@/providers/AuthProvider';
 import ShopListingFields, { shopListingError, shopListingPayload, type ShopListingValue } from '@/components/ecommerce/ShopListingFields';
+import InstagramDetailsFields, { instagramDetailsError, instagramDetailsPayload, instagramDetailsValue, type InstagramDetailsValue } from './InstagramDetailsFields';
 
 interface PostModalProps {
   isOpen: boolean;
@@ -238,6 +239,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
   const canPostToInstagram = selectedSubject === 'photo';
   const [postToInstagram, setPostToInstagram] = useState(true);
   const willPostToInstagram = canPostToInstagram && mirrorToAiko && postToInstagram;
+  const [instagramDetails, setInstagramDetails] = useState<InstagramDetailsValue>(() => instagramDetailsValue());
   const [articleContent, setArticleContent] = useState('');
   const [isArticleImageUploading, setIsArticleImageUploading] = useState(false);
   const [splashImageFile, setSplashImageFile] = useState<File | null>(null);
@@ -736,6 +738,15 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
         return;
       }
 
+      if (willPostToInstagram) {
+        const detailsError = instagramDetailsError(instagramDetails);
+        if (detailsError) {
+          setError(detailsError);
+          setIsSubmitting(false);
+          return;
+        }
+      }
+
       if (isShop) {
         const listingError = shopListingError(shopListing);
         if (listingError) {
@@ -963,6 +974,9 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
       if (isPhoto && galleryUrls.length > 1) {
         postData.gallery_urls = galleryUrls;
       }
+      if (willPostToInstagram) {
+        Object.assign(postData, instagramDetailsPayload(instagramDetails));
+      }
 
       console.log('[PostModal] Post data prepared:', postData);
       console.log('[PostModal] Calling createPost API...');
@@ -987,6 +1001,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
       setIsActive(false);
       setMirrorToAiko(true);
       setPostToInstagram(true);
+      setInstagramDetails(instagramDetailsValue());
       setAudioPreviewName('');
       setArticleContent('');
       setSplashImageFile(null);
@@ -1808,6 +1823,14 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                         />
                       </button>
                     </div>
+                  )}
+
+                  {willPostToInstagram && (
+                    <InstagramDetailsFields
+                      value={instagramDetails}
+                      onChange={(patch) => setInstagramDetails(prev => ({ ...prev, ...patch }))}
+                      authToken={authToken}
+                    />
                   )}
 
                   {/* Date */}
