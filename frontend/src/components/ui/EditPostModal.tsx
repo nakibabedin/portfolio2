@@ -8,6 +8,7 @@ import InstagramDetailsFields, { instagramDetailsError, instagramDetailsPayload,
 import MarkdownEditor from './MarkdownEditor';
 import { useAuth } from '@/providers/AuthProvider';
 import ShopListingFields, { shopListingError, shopListingPayload, type ShopListingValue } from '@/components/ecommerce/ShopListingFields';
+import ListingPhotosEditor, { listingPhotosFromUrls, uploadListingPhotos } from '@/components/ecommerce/ListingPhotosEditor';
 import { getCategoryConfig } from '@/lib/categories';
 
 interface EditPostModalProps {
@@ -24,6 +25,7 @@ interface EditPostModalProps {
         isMajor?: boolean;
         contentUrl?: string;
         thumbnailUrl?: string | null;
+        galleryUrls?: string[];
         slug?: string;
         crossPostAlbums?: string[];
         postType?: string;
@@ -78,6 +80,11 @@ export default function EditPostModal({
         accepts_offers: post.acceptsOffers ?? false,
         fb_marketplace_url: post.fbMarketplaceUrl ?? null,
     });
+
+    // Older listings may have no gallery; their one photo is content_url.
+    const [listingPhotos, setListingPhotos] = useState(() =>
+        listingPhotosFromUrls(post.galleryUrls?.length ? post.galleryUrls : post.contentUrl ? [post.contentUrl] : [])
+    );
 
     const [albumOptions, setAlbumOptions] = useState<string[]>([]);
 const [articleContent, setArticleContent] = useState(post.contentUrl || '');
@@ -186,7 +193,8 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
         if (!isShop) {
             submitData.price = null;
         } else {
-            const listingError = shopListingError(shopListing);
+            const listingError = shopListingError(shopListing)
+                ?? (listingPhotos.length === 0 ? 'A listing needs at least one photo.' : null);
             if (listingError) {
                 setError(listingError);
                 setIsLoading(false);
@@ -217,6 +225,16 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
             if (isFilePost && replacementFile) {
                 const uploadResult = await uploadImage(replacementFile, 'documents', authToken);
                 submitData.content_url = uploadResult.url;
+            }
+            if (isShop) {
+                // The first photo is the thumbnail everywhere the listing shows.
+                const urls = await uploadListingPhotos(listingPhotos, authToken);
+                Object.assign(submitData, {
+                    gallery_urls: urls,
+                    content_url: urls[0],
+                    thumbnail_url: urls[0],
+                    splash_image_url: urls[0],
+                });
             }
             const updated = await updatePost(post.id, submitData, authToken);
             onUpdate(updated);
@@ -403,6 +421,14 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
                                             </div>
                                         </div>
                                     </div>
+
+                                    {isShop && (
+                                        <ListingPhotosEditor
+                                            photos={listingPhotos}
+                                            onChange={setListingPhotos}
+                                            disabled={isLoading}
+                                        />
+                                    )}
 
                                     {/* Shop: what this post sells, and at what price */}
                                     {isShop && (

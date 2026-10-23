@@ -579,6 +579,7 @@ export default function ImageModal({
                 isMajor: post?.splash_image_url === post?.content_url && category !== 'bio', // inferred roughly
                 contentUrl,
                 thumbnailUrl: post?.thumbnail_url,
+                galleryUrls: post?.gallery_urls ?? galleryUrls,
                 slug,
                 crossPostAlbums: crossPostAlbums || [],
                 postType,

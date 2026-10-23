@@ -201,6 +201,12 @@ async def create_post(
 
     return db_post
 
+def stored_files(post) -> set[str]:
+    """The S3 files a post points at. Projects keep article text in
+    content_url, so anything that isn't an S3 URL is left out."""
+    urls = [post.content_url, post.thumbnail_url, post.splash_image_url, *(post.gallery_urls or [])]
+    return {u for u in urls if u and urlparse(u).netloc.endswith('.amazonaws.com')}
+
 @router.put("/{post_id}", response_model=PostResponse)
 async def update_post(
     post_id: str,
@@ -220,7 +226,7 @@ async def update_post(
     was_mirrored = aiko_sync.should_mirror(aiko_sync.snapshot(db_post))
 
     update_payload = post_update.dict(exclude_unset=True)
-    previous_content_url = db_post.content_url
+    previous_files = stored_files(db_post)
 
     for key, value in update_payload.items():
         setattr(db_post, key, value)
@@ -244,16 +250,12 @@ async def update_post(
     db.commit()
     db.refresh(db_post)
 
-    # A replaced file (e.g. a new resume PDF) leaves the old one orphaned in S3.
-    # Only delete it once nothing on the post still points at it. Projects keep
-    # article text in content_url, so anything that isn't an S3 URL is skipped.
-    if (
-        previous_content_url
-        and urlparse(previous_content_url).netloc.endswith('.amazonaws.com')
-        and previous_content_url != db_post.content_url
-        and previous_content_url not in (db_post.thumbnail_url, db_post.splash_image_url)
-    ):
-        delete_file_from_s3(previous_content_url)
+    # A replaced file (e.g. a new resume PDF, or a photo dropped from a shop
+    # listing) leaves the old one orphaned in S3. Only delete it once nothing on
+    # the post still points at it: reordering a listing moves its old cover into
+    # the gallery, where it's still in use.
+    for url in previous_files - stored_files(db_post):
+        delete_file_from_s3(url)
 
     background_tasks.add_task(aiko_sync.sync_post, aiko_sync.snapshot(db_post), was_mirrored)
 

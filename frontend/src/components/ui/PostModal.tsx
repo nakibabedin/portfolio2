@@ -16,6 +16,7 @@ import {
   PaperClipIcon,
   SpeakerWaveIcon,
 } from '@heroicons/react/24/outline';
+import { compressImageFile } from '@/lib/images';
 import { getAvailableNotes, embedNote, embedNowPlaying, type AvailableNote, createPost, uploadImage, getAlbumsByCategory, createAlbum, type PostCreate } from '@/lib/api';
 import MarkdownEditor from './MarkdownEditor';
 import { useAuth } from '@/providers/AuthProvider';
@@ -80,62 +81,6 @@ function getCurrentESTDateTime(): string {
 
   return `${year}-${monthStr}-${dayStr}T${hoursStr}:${minutesStr}`;
 }
-
-const compressImageFile = (file: File, options?: { maxWidth?: number; maxHeight?: number; quality?: number; forceSquare?: boolean }): Promise<File> => {
-  const { maxWidth = 1000, maxHeight = 1000, quality = 0.7, forceSquare = false } = options || {};
-
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    const objectUrl = URL.createObjectURL(file);
-    image.onload = () => {
-      let { width, height } = image;
-      let sx = 0;
-      let sy = 0;
-      let drawWidth = width;
-      let drawHeight = height;
-
-      if (forceSquare) {
-        const size = Math.min(width, height);
-        sx = Math.floor((width - size) / 2);
-        sy = Math.floor((height - size) / 2);
-        drawWidth = size;
-        drawHeight = size;
-      }
-
-      const scale = Math.min(maxWidth / drawWidth, maxHeight / drawHeight, 1);
-      const targetWidth = Math.round(drawWidth * scale);
-      const targetHeight = Math.round(drawHeight * scale);
-
-      const canvas = document.createElement('canvas');
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        URL.revokeObjectURL(objectUrl);
-        reject(new Error('Failed to get canvas context'));
-        return;
-      }
-
-      ctx.drawImage(image, sx, sy, drawWidth, drawHeight, 0, 0, targetWidth, targetHeight);
-
-      canvas.toBlob((blob) => {
-        URL.revokeObjectURL(objectUrl);
-        if (!blob) {
-          reject(new Error('Failed to generate thumbnail blob'));
-          return;
-        }
-        const thumbnailName = `${file.name.replace(/\.[^/.]+$/, '')}-thumb.jpg`;
-        const thumbnailFile = new File([blob], thumbnailName, { type: 'image/jpeg' });
-        resolve(thumbnailFile);
-      }, 'image/jpeg', quality);
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      reject(new Error('Failed to load image for compression'));
-    };
-    image.src = objectUrl;
-  });
-};
 
 const compressArticleImage = (file: File, options?: { maxWidth?: number; maxHeight?: number; quality?: number }): Promise<File> => {
   const { maxWidth = 720, maxHeight = 720, quality = 0.85 } = options || {};
@@ -605,18 +550,6 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
     );
   };
 
-  const handleRemoveGalleryImage = (index: number) => {
-    setGalleryFiles((prev) => {
-      const updated = prev.filter((_, i) => i !== index);
-      setContentFile(updated[0] || null);
-      if (selectedSubject === 'shop') {
-        setContentImagePreview('');
-      }
-      return updated;
-    });
-    setGalleryPreviews((prev) => prev.filter((_, i) => i !== index));
-  };
-
   const handleThumbnailFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -759,11 +692,6 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
           setIsSubmitting(false);
           return;
         }
-        if (!thumbnailFile) {
-          setError('Please upload a thumbnail image for shop posts.');
-          setIsSubmitting(false);
-          return;
-        }
       }
 
       // Upload file to S3 first, then get the URL
@@ -797,26 +725,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
           uploadedContentUrl = uploadedGallery[0] || uploadedContentUrl;
           if (uploadedGallery[0]) {
             setContentUrl(uploadedGallery[0]);
-          }
-
-          if (thumbnailFile) {
-            try {
-              const compressedThumb = await compressImageFile(thumbnailFile, { maxWidth: 800, maxHeight: 800, quality: 0.7, forceSquare: true });
-              if (!authToken) {
-                throw new Error('You must be signed in to upload images.');
-              }
-              const thumbnailUpload = await uploadImage(compressedThumb, 'thumbnails', authToken);
-              finalThumbnailUrl = thumbnailUpload.url;
-            } catch (thumbErr) {
-              console.warn('[PostModal] Thumbnail compression failed for shop, uploading original:', thumbErr);
-              if (authToken) {
-                const fallbackThumbUpload = await uploadImage(thumbnailFile, 'thumbnails', authToken);
-                finalThumbnailUrl = fallbackThumbUpload.url;
-              } else {
-                finalThumbnailUrl = uploadedHeroUrl || finalThumbnailUrl;
-              }
-            }
-          } else if (uploadedGallery[0]) {
+            // The first photo is the thumbnail everywhere the listing shows.
             finalThumbnailUrl = uploadedGallery[0];
           }
         } catch (err) {
@@ -1351,14 +1260,12 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                   )}
 
 
-                  {(selectedSubject === 'music' || selectedSubject === 'shop' || isFilePost) && (
+                  {(selectedSubject === 'music' || isFilePost) && (
                     <div>
                       <label className="block text-sm font-medium text-white/90 mb-2">
                         {selectedSubject === 'music'
                           ? 'Thumbnail Image (1:1)'
-                          : isFilePost
-                            ? 'Thumbnail Image'
-                            : 'Shop Thumbnail (1:1 recommended)'}
+                          : 'Thumbnail Image'}
                       </label>
                       <div className="mb-3">
                         <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/30 rounded-lg cursor-pointer bg-white/5 hover:bg-white/10 transition-colors">
@@ -1375,9 +1282,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                                 <p className="text-sm text-white/80">
                                   {selectedSubject === 'music'
                                     ? 'Click to upload image thumbnail'
-                                    : isFilePost
-                                      ? 'Click to upload thumbnail'
-                                      : 'Click to upload product thumbnail'}
+                                    : 'Click to upload thumbnail'}
                                 </p>
                                 <p className="text-xs text-white/60 mt-1">Square image recommended</p>
                               </>
@@ -1515,11 +1420,13 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                       </div>
                     )}
 
-                    {isPhoto && galleryPreviews.length > 0 && (
+                    {(isPhoto || isShop) && galleryPreviews.length > 0 && (
                       <div className="mt-4">
                         {galleryPreviews.length > 1 && (
                           <p className="text-sm text-white/70 mb-2">
-                            Drag to reorder. This is the order on the site and on Instagram; the first is the cover.
+                            {isShop
+                              ? 'Drag to reorder. The first is the thumbnail on the shop and at checkout.'
+                              : 'Drag to reorder. This is the order on the site and on Instagram; the first is the cover.'}
                           </p>
                         )}
                         <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
@@ -1544,7 +1451,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                                 draggable={false}
                               />
                               <span className="absolute top-1.5 left-1.5 px-1.5 py-0.5 text-xs font-medium bg-black/70 text-white rounded">
-                                {index === 0 ? 'Cover' : index + 1}
+                                {index === 0 ? (isShop ? 'Thumbnail' : 'Cover') : index + 1}
                               </span>
                               <button
                                 type="button"
@@ -1577,30 +1484,6 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                                   </button>
                                 </div>
                               )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {isShop && galleryPreviews.length > 0 && (
-                      <div className="mt-4">
-                        <p className="text-sm text-white/70 mb-2">Gallery Preview</p>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                          {galleryPreviews.map((preview, index) => (
-                            <div key={`${preview}-${index}`} className="relative group">
-                              <img
-                                src={preview}
-                                alt={`Gallery ${index + 1}`}
-                                className="w-full h-32 object-cover rounded-lg border border-white/20"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveGalleryImage(index)}
-                                className="absolute top-2 right-2 p-1 bg-black/60 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
                             </div>
                           ))}
                         </div>
@@ -1874,7 +1757,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                         (!contentFile && selectedSubject !== 'bio' && selectedSubject !== 'shop') ||
                         (selectedSubject === 'projects' && !articleContent.trim()) ||
                         (selectedSubject === 'bio' && !contentFile && !articleContent.trim()) ||
-                        ((isMusic || isShop || isFilePost) && !thumbnailFile) ||
+                        ((isMusic || isFilePost) && !thumbnailFile) ||
                         (isShop && shopListingError(shopListing) !== null) ||
                         (isShop && galleryFiles.length === 0) ||
                         isSubmitting ||
