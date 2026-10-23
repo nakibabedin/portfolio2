@@ -107,7 +107,11 @@ function PrintifyBuy({ postId, listing }: { postId: string; listing: ShopListing
 
   return (
     <div className="space-y-5">
-      {listing.options.map((option) => (
+      {/* An option with one sellable value (e.g. a product made in a single
+          color) is already selected, so there's nothing to pick. */}
+      {listing.options
+        .filter((option) => option.values.filter((value) => isValueSellable(value.id)).length > 1)
+        .map((option) => (
         <div key={option.name}>
           <p className="text-xs uppercase tracking-wider text-white/50 mb-2">{option.name}</p>
           <div className="flex flex-wrap gap-2">
