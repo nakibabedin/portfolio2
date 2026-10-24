@@ -31,7 +31,7 @@ interface ImageModalProps {
   price?: number | null;
   galleryUrls?: string[];
   canEdit?: boolean;
-  post?: Pick<Post, 'content_url' | 'thumbnail_url' | 'splash_image_url' | 'gallery_urls' | 'printify_product_id' | 'listing_type' | 'stock' | 'accepts_offers' | 'fb_marketplace_url' | 'mirror_to_aiko' | 'instagram_media_id' | 'instagram_hashtags' | 'instagram_collaborators' | 'instagram_location_id' | 'instagram_location_name'>;
+  post?: Pick<Post, 'content_url' | 'is_major' | 'thumbnail_url' | 'splash_image_url' | 'gallery_urls' | 'printify_product_id' | 'listing_type' | 'stock' | 'accepts_offers' | 'fb_marketplace_url' | 'mirror_to_aiko' | 'instagram_media_id' | 'instagram_hashtags' | 'instagram_collaborators' | 'instagram_location_id' | 'instagram_location_name'>;
   isActive?: boolean;
   isFavorite?: boolean;
   crossPostAlbums?: string[];
@@ -576,7 +576,7 @@ export default function ImageModal({
                 album: album || '',
                 price,
                 isActive,
-                isMajor: post?.splash_image_url === post?.content_url && category !== 'bio', // inferred roughly
+                isMajor: post?.is_major ?? false,
                 contentUrl,
                 thumbnailUrl: post?.thumbnail_url,
                 galleryUrls: post?.gallery_urls ?? galleryUrls,

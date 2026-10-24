@@ -795,6 +795,7 @@ export default function Feed({ directory, activeAlbum = 'all', category, useData
               selectedImage.rawPost
                 ? {
                   content_url: selectedImage.rawPost.content_url,
+                  is_major: selectedImage.rawPost.is_major,
                   thumbnail_url: selectedImage.rawPost.thumbnail_url,
                   splash_image_url: selectedImage.rawPost.splash_image_url,
                   gallery_urls: selectedImage.rawPost.gallery_urls ?? [],

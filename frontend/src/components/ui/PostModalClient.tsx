@@ -14,6 +14,7 @@ interface PostModalClientProps {
     post_type?: string;
     thumbnail_url: string;
     splash_image_url?: string | null;
+    is_major: boolean;
     slug: string;
     category: string;
     album: string;
