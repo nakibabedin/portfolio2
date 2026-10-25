@@ -1,50 +1,28 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { X } from 'lucide-react';
-import { getInstagramLocations, type InstagramDetails, type InstagramLocation } from '@/lib/api';
+import type { InstagramDetails } from '@/lib/api';
 
 /** Pre-filled on every new photo going to Instagram; edit them per post. */
 export const DEFAULT_INSTAGRAM_HASHTAGS = ['photography', 'sonyalpha', 'lightroom'];
 
 // Instagram's own limits.
 const MAX_HASHTAGS = 30;
-const MAX_COLLABORATORS = 3;
+const MAX_USER_TAGS = 20;
 
-/**
- * The form's copy of the details. The location is kept as typed (a Facebook
- * link or a bare id) and only turned into an id when the post is saved, so a
- * link without one can be flagged instead of silently dropped.
- */
+/** The form's copy of the details. */
 export interface InstagramDetailsValue {
   hashtags: string[];
-  collaborators: string[];
-  locationName: string;
-  locationInput: string;
+  userTags: string[];
 }
 
 export function instagramDetailsValue(post?: Partial<InstagramDetails> | null): InstagramDetailsValue {
   const hashtags = post?.instagram_hashtags ?? [];
   return {
     hashtags: hashtags.length ? hashtags : DEFAULT_INSTAGRAM_HASHTAGS,
-    collaborators: post?.instagram_collaborators ?? [],
-    locationName: post?.instagram_location_name ?? '',
-    locationInput: post?.instagram_location_id ?? '',
+    userTags: post?.instagram_user_tags ?? [],
   };
-}
-
-/**
- * The page id in a Facebook place page link, or a bare id. Handles
- * facebook.com/pages/Name/123…, facebook.com/Name-123…, and profile.php?id=123….
- * A vanity link (facebook.com/SomePlace) has no id in it.
- */
-export function parseFacebookPageId(input: string): string | null {
-  const text = input.trim();
-  if (/^\d{5,20}$/.test(text)) return text;
-  const idParam = text.match(/[?&]id=(\d{5,20})/);
-  if (idParam) return idParam[1];
-  const trailing = text.split(/[?#]/)[0].replace(/\/+$/, '').match(/(?:^|[/-])(\d{5,20})$/);
-  return trailing ? trailing[1] : null;
 }
 
 /** Instagram ends a hashtag at the first character that isn't a letter, digit or underscore. */
@@ -56,30 +34,13 @@ function cleanUsername(name: string): string {
   return name.trim().replace(/^@/, '').replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/\/.*$/, '').toLowerCase();
 }
 
-/** What's wrong with the details before they can be saved, or null. */
-export function instagramDetailsError(value: InstagramDetailsValue): string | null {
-  if (value.locationInput.trim() && !parseFacebookPageId(value.locationInput)) {
-    return "The location link has no Facebook page id in it. Paste the page id from the place's Facebook page (About → Page transparency).";
-  }
-  if (value.locationInput.trim() && !value.locationName.trim()) {
-    return 'Give the location a name.';
-  }
-  return null;
-}
-
 /** The details as a post create/update payload. */
 export function instagramDetailsPayload(value: InstagramDetailsValue): InstagramDetails {
-  const locationId = parseFacebookPageId(value.locationInput);
   return {
     instagram_hashtags: value.hashtags,
-    instagram_collaborators: value.collaborators,
-    instagram_location_id: locationId,
-    instagram_location_name: locationId ? value.locationName.trim() || null : null,
+    instagram_user_tags: value.userTags,
   };
 }
-
-const inputClass =
-  'w-full p-3 border border-white/30 bg-white/10 text-white rounded-lg focus:ring-2 focus:ring-white/50 focus:border-white/50 placeholder-white/50';
 
 interface ChipInputProps {
   label: string;
@@ -168,20 +129,10 @@ function ChipInput({ label, hint, values, onChange, clean, prefix, max, placehol
 interface InstagramDetailsFieldsProps {
   value: InstagramDetailsValue;
   onChange: (patch: Partial<InstagramDetailsValue>) => void;
-  authToken: string | null;
 }
 
-/** Hashtags, collaborators and location for a photo going to Instagram. */
-export default function InstagramDetailsFields({ value, onChange, authToken }: InstagramDetailsFieldsProps) {
-  const [knownLocations, setKnownLocations] = useState<InstagramLocation[]>([]);
-
-  useEffect(() => {
-    if (!authToken) return;
-    getInstagramLocations(authToken).then(setKnownLocations).catch(() => setKnownLocations([]));
-  }, [authToken]);
-
-  const locationId = parseFacebookPageId(value.locationInput);
-
+/** Hashtags and the people tagged, for a photo going to Instagram. */
+export default function InstagramDetailsFields({ value, onChange }: InstagramDetailsFieldsProps) {
   return (
     <div className="space-y-4 p-4 bg-white/5 rounded-xl border border-white/10">
       <p className="text-white font-medium">Instagram details</p>
@@ -198,54 +149,16 @@ export default function InstagramDetailsFields({ value, onChange, authToken }: I
       />
 
       <ChipInput
-        label="Collaborators"
-        hint="Instagram usernames, public accounts only. Each gets an invite; once accepted, the post also shows on their profile."
-        values={value.collaborators}
-        onChange={(collaborators) => onChange({ collaborators })}
+        label="Tag people"
+        hint="Instagram usernames. They're tagged in the photo (the first one, in a group) and notified."
+        values={value.userTags}
+        onChange={(userTags) => onChange({ userTags })}
         clean={cleanUsername}
         prefix="@"
-        max={MAX_COLLABORATORS}
+        max={MAX_USER_TAGS}
         placeholder="username"
         isValid={(name) => /^[a-z0-9._]{1,30}$/.test(name)}
       />
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <label className="block">
-          <span className="block text-sm font-medium text-white/90 mb-2">Location</span>
-          <input
-            type="text"
-            list="instagram-locations"
-            value={value.locationName}
-            onChange={(e) => {
-              const name = e.target.value;
-              const known = knownLocations.find((l) => l.name === name);
-              onChange(known ? { locationName: name, locationInput: known.id } : { locationName: name });
-            }}
-            className={inputClass}
-            placeholder="Mount Rainier National Park"
-          />
-          <datalist id="instagram-locations">
-            {knownLocations.map((l) => <option key={l.id} value={l.name} />)}
-          </datalist>
-        </label>
-        <label className="block">
-          <span className="block text-sm font-medium text-white/90 mb-2">Facebook page link or id</span>
-          <input
-            type="text"
-            value={value.locationInput}
-            onChange={(e) => onChange({ locationInput: e.target.value })}
-            className={inputClass}
-            placeholder="facebook.com/pages/…/123456789"
-          />
-        </label>
-      </div>
-      <p className="-mt-2 text-xs text-white/50">
-        {value.locationInput.trim()
-          ? locationId
-            ? `Page id ${locationId}`
-            : <span className="text-red-300">No page id in that link</span>
-          : 'Instagram names places by their Facebook page. Find the place on Facebook, then copy the page id from About → Page transparency. Places you have used before show up as you type.'}
-      </p>
     </div>
   );
 }

@@ -4,11 +4,10 @@ from typing import Literal, Optional, List
 from uuid import UUID
 import re
 
-# Instagram's own limits: 30 hashtags a post, 3 invited collaborators.
+# Instagram's own limits: 30 hashtags a post, 20 people tagged in a photo.
 MAX_INSTAGRAM_HASHTAGS = 30
-MAX_INSTAGRAM_COLLABORATORS = 3
+MAX_INSTAGRAM_USER_TAGS = 20
 _INSTAGRAM_USERNAME = re.compile(r"^[a-z0-9._]{1,30}$")
-_FACEBOOK_PAGE_ID = re.compile(r"^\d{5,20}$")
 
 
 def _clean_hashtags(tags: Optional[List[str]]) -> Optional[List[str]]:
@@ -28,7 +27,7 @@ def _clean_hashtags(tags: Optional[List[str]]) -> Optional[List[str]]:
     return cleaned
 
 
-def _clean_collaborators(names: Optional[List[str]]) -> Optional[List[str]]:
+def _clean_user_tags(names: Optional[List[str]]) -> Optional[List[str]]:
     if names is None:
         return None
     cleaned = []
@@ -40,18 +39,9 @@ def _clean_collaborators(names: Optional[List[str]]) -> Optional[List[str]]:
             raise ValueError(f"'{name}' isn't an Instagram username")
         if name not in cleaned:
             cleaned.append(name)
-    if len(cleaned) > MAX_INSTAGRAM_COLLABORATORS:
-        raise ValueError(f"Instagram allows at most {MAX_INSTAGRAM_COLLABORATORS} collaborators")
+    if len(cleaned) > MAX_INSTAGRAM_USER_TAGS:
+        raise ValueError(f"Instagram allows at most {MAX_INSTAGRAM_USER_TAGS} people tagged")
     return cleaned
-
-
-def _clean_location_id(value: Optional[str]) -> Optional[str]:
-    value = (value or "").strip()
-    if not value:
-        return None
-    if not _FACEBOOK_PAGE_ID.match(value):
-        raise ValueError("The location must be a Facebook place page id (digits only)")
-    return value
 
 
 class InstagramFields(BaseModel):
@@ -62,20 +52,10 @@ class InstagramFields(BaseModel):
     def _hashtags(cls, v):
         return _clean_hashtags(v)
 
-    @field_validator("instagram_collaborators", check_fields=False)
+    @field_validator("instagram_user_tags", check_fields=False)
     @classmethod
-    def _collaborators(cls, v):
-        return _clean_collaborators(v)
-
-    @field_validator("instagram_location_id", check_fields=False)
-    @classmethod
-    def _location_id(cls, v):
-        return _clean_location_id(v)
-
-    @field_validator("instagram_location_name", check_fields=False)
-    @classmethod
-    def _location_name(cls, v):
-        return (v or "").strip() or None
+    def _user_tags(cls, v):
+        return _clean_user_tags(v)
 
 class PostBase(InstagramFields):
     category: str = Field(..., description="Category: art, photo, music, projects, bio, apparel")
@@ -100,9 +80,7 @@ class PostBase(InstagramFields):
     fb_marketplace_url: Optional[str] = Field(default=None, description="The same item on Facebook Marketplace")
     mirror_to_aiko: bool = Field(default=True, description="Mirror this art/photo post to Aiko")
     instagram_hashtags: List[str] = Field(default_factory=list, description="Hashtags for the Instagram caption, without '#'")
-    instagram_collaborators: List[str] = Field(default_factory=list, description="Instagram usernames invited to co-author the post")
-    instagram_location_id: Optional[str] = Field(default=None, description="Facebook place page id Instagram tags as the location")
-    instagram_location_name: Optional[str] = Field(default=None, max_length=255, description="That place's name, for the admin form")
+    instagram_user_tags: List[str] = Field(default_factory=list, description="Instagram usernames tagged in the photo")
 
 class PostCreate(PostBase):
     slug: Optional[str] = Field(default=None, description="Custom slug override")
@@ -138,9 +116,7 @@ class PostUpdate(InstagramFields):
     fb_marketplace_url: Optional[str] = None
     mirror_to_aiko: Optional[bool] = None
     instagram_hashtags: Optional[List[str]] = None
-    instagram_collaborators: Optional[List[str]] = None
-    instagram_location_id: Optional[str] = None
-    instagram_location_name: Optional[str] = Field(default=None, max_length=255)
+    instagram_user_tags: Optional[List[str]] = None
     date: Optional[datetime] = None
     
     class Config:

@@ -113,25 +113,15 @@ export interface Post {
   /** Mirrored to Aiko (art/photo). Off means the admin opted this post out. */
   mirror_to_aiko?: boolean;
   instagram_hashtags?: string[];
-  instagram_collaborators?: string[];
-  instagram_location_id?: string | null;
-  instagram_location_name?: string | null;
+  instagram_user_tags?: string[];
 }
 
 /** What an Instagram post carries besides its caption. Read only at publish. */
 export interface InstagramDetails {
   /** Bare, without the '#'. */
   instagram_hashtags: string[];
-  /** Usernames invited to co-author the post, at most 3. */
-  instagram_collaborators: string[];
-  /** The Facebook place page Instagram tags as the location. */
-  instagram_location_id: string | null;
-  instagram_location_name: string | null;
-}
-
-export interface InstagramLocation {
-  id: string;
-  name: string;
+  /** Usernames tagged in the photo, at most 20. */
+  instagram_user_tags: string[];
 }
 
 export interface PostCreate extends Partial<InstagramDetails> {
@@ -293,17 +283,6 @@ export async function publishPostToInstagram(id: string, authToken?: string): Pr
 }
 
 /** Locations already used on posts, most used first. */
-export async function getInstagramLocations(authToken?: string): Promise<InstagramLocation[]> {
-  const response = await fetch(`${POSTS_ENDPOINT}instagram-locations`, {
-    headers: {
-      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-    },
-  });
-  if (!response.ok) return [];
-  const data = await response.json();
-  return data.locations ?? [];
-}
-
 export async function deletePost(id: string, authToken?: string): Promise<void> {
   console.log('[API] deletePost called with id:', id);
   console.log('[API] Delete URL:', `${POSTS_ENDPOINT}${id}`);

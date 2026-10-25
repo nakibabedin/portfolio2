@@ -104,24 +104,6 @@ async def get_unique_albums_by_category(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Error fetching albums: {str(e)}")
 
-@router.get("/instagram-locations")
-async def get_instagram_locations(
-    db: Session = Depends(get_db),
-    current_user=Depends(verify_firebase_token),
-):
-    """Locations already used on posts, most used first, so the admin form can
-    offer them again instead of making the Facebook page id be looked up twice."""
-    from sqlalchemy import func
-    uses = func.count(Post.id)
-    rows = (
-        db.query(Post.instagram_location_id, func.max(Post.instagram_location_name), uses)
-        .filter(Post.instagram_location_id.isnot(None))
-        .group_by(Post.instagram_location_id)
-        .order_by(uses.desc())
-        .all()
-    )
-    return {"locations": [{"id": row[0], "name": row[1] or row[0]} for row in rows]}
-
 @router.get("/{post_id}", response_model=PostResponse)
 async def get_post(post_id: str, db: Session = Depends(get_db)):
     """Get a single post by ID"""

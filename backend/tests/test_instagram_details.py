@@ -16,8 +16,7 @@ def _post(**overrides):
         title="Title",
         description="A walk by the water",
         instagram_hashtags=[],
-        instagram_collaborators=[],
-        instagram_location_id=None,
+        instagram_user_tags=[],
     )
     fields.update(overrides)
     return SimpleNamespace(**fields)
@@ -32,21 +31,15 @@ class SchemaTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             PostUpdate(instagram_hashtags=[f"tag{i}" for i in range(31)])
 
-    def test_collaborators_are_bare_lowercase_usernames(self):
-        update = PostUpdate(instagram_collaborators=["@Some.One", "some.one", "two_2"])
-        self.assertEqual(update.instagram_collaborators, ["some.one", "two_2"])
+    def test_user_tags_are_bare_lowercase_usernames(self):
+        update = PostUpdate(instagram_user_tags=["@Some.One", "some.one", "two_2"])
+        self.assertEqual(update.instagram_user_tags, ["some.one", "two_2"])
 
-    def test_collaborator_limits(self):
+    def test_user_tag_limits(self):
         with self.assertRaises(ValidationError):
-            PostUpdate(instagram_collaborators=["a", "b", "c", "d"])
+            PostUpdate(instagram_user_tags=[f"user{i}" for i in range(21)])
         with self.assertRaises(ValidationError):
-            PostUpdate(instagram_collaborators=["not a username"])
-
-    def test_location_id_is_digits_or_nothing(self):
-        self.assertEqual(PostUpdate(instagram_location_id=" 108424279189115 ").instagram_location_id, "108424279189115")
-        self.assertIsNone(PostUpdate(instagram_location_id="").instagram_location_id)
-        with self.assertRaises(ValidationError):
-            PostUpdate(instagram_location_id="facebook.com/somewhere")
+            PostUpdate(instagram_user_tags=["not a username"])
 
 
 class CaptionTests(unittest.TestCase):
@@ -60,13 +53,13 @@ class CaptionTests(unittest.TestCase):
         self.assertEqual(len(caption), instagram_sync.MAX_CAPTION)
         self.assertTrue(caption.endswith("https://aiko/pin/1\n\n#film"))
 
-    def test_discovery_params(self):
-        self.assertEqual(instagram_sync._discovery_params(_post()), {})
-        params = instagram_sync._discovery_params(
-            _post(instagram_location_id="123456", instagram_collaborators=["a.b"])
+    def test_user_tag_params(self):
+        self.assertEqual(instagram_sync._user_tag_params(_post()), {})
+        params = instagram_sync._user_tag_params(_post(instagram_user_tags=["a.b", "c_d"]))
+        self.assertEqual(
+            json.loads(params["user_tags"]),
+            [{"username": "a.b", "x": 0.333, "y": 0.5}, {"username": "c_d", "x": 0.667, "y": 0.5}],
         )
-        self.assertEqual(params["location_id"], "123456")
-        self.assertEqual(json.loads(params["collaborators"]), ["a.b"])
 
 
 class _Response:
@@ -84,8 +77,8 @@ class _Response:
 
 
 class _Client:
-    """Stands in for httpx.AsyncClient: refuses the first container if it
-    carries collaborators, accepts everything else."""
+    """Stands in for httpx.AsyncClient: refuses any container that tags
+    people, accepts everything else."""
 
     def __init__(self, *args, **kwargs):
         self.containers = []
@@ -103,34 +96,43 @@ class _Client:
     async def post(self, url, data):
         if url.endswith("/media"):
             self.containers.append(data)
-            if "collaborators" in data:
+            if "user_tags" in data:
                 return _Response(400, {"error": {"message": "Invalid user id"}})
             return _Response(200, {"id": "c1"})
         return _Response(200, {"id": "m1"})
 
 
 class RetryTests(unittest.TestCase):
-    def test_publishes_without_extras_when_instagram_refuses_them(self):
-        post = _post(
-            content_url="https://s3/x.webp",
-            instagram_collaborators=["gone.private"],
-            instagram_location_id="123456",
-        )
+    def _publish(self, images):
+        post = _post(content_url=images[0], instagram_user_tags=["gone.private"])
         with (
             mock.patch.object(instagram_sync, "_config", return_value=("https://graph", "u", "t")),
-            mock.patch.object(instagram_sync.aiko_sync, "group_images", return_value=["https://s3/x.webp"]),
+            mock.patch.object(instagram_sync.aiko_sync, "group_images", return_value=images),
             mock.patch.object(instagram_sync, "_prepare_jpeg", return_value="https://s3/x.jpg"),
+            mock.patch.object(instagram_sync, "_aspect_of", return_value=1.0),
             mock.patch.object(instagram_sync, "_wait_for_container", return_value=None),
             mock.patch.object(instagram_sync.httpx, "AsyncClient", _Client),
         ):
-            result = asyncio.run(instagram_sync.publish_post(post, "https://aiko/pin/1"))
+            return asyncio.run(instagram_sync.publish_post(post, "https://aiko/pin/1"))
 
+    def test_publishes_untagged_when_instagram_refuses_the_tags(self):
+        result = self._publish(["https://s3/x.webp"])
         self.assertEqual(result, {"ok": True, "media_id": "m1"})
         first, retry = _Client.last.containers
-        self.assertIn("location_id", first)
-        self.assertNotIn("collaborators", retry)
-        self.assertNotIn("location_id", retry)
+        self.assertIn("user_tags", first)
+        self.assertNotIn("user_tags", retry)
         self.assertEqual(retry["caption"], first["caption"])
+
+    def test_carousel_tags_go_on_the_first_photo(self):
+        result = self._publish(["https://s3/a.webp", "https://s3/b.webp"])
+        self.assertEqual(result, {"ok": True, "media_id": "m1"})
+        tagged, first, second, carousel = _Client.last.containers
+        self.assertIn("user_tags", tagged)
+        self.assertEqual(tagged["is_carousel_item"], "true")
+        self.assertNotIn("user_tags", first)
+        self.assertNotIn("user_tags", second)
+        self.assertEqual(carousel["media_type"], "CAROUSEL")
+        self.assertNotIn("user_tags", carousel)
 
 
 if __name__ == "__main__":

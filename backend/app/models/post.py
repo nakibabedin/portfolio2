@@ -45,12 +45,10 @@ class Post(Base):
     mirror_to_aiko = Column(Boolean, nullable=False, default=True, server_default=true())
     # What the Instagram post carries besides the caption. Only read when the
     # post is published there, never shown on the site: hashtags (stored bare,
-    # without the '#'), up to 3 collaborator usernames who are invited to
-    # co-author it, and a location, which Instagram identifies by the id of a
-    # Facebook place page (the name is only for the admin form).
+    # without the '#') and the usernames of people tagged in the photo.
+    # The instagram_collaborators and instagram_location_* columns still exist
+    # in the database from an earlier version but are no longer used.
     instagram_hashtags = Column(ARRAY(Text), nullable=False, default=list, server_default="{}")
-    instagram_collaborators = Column(ARRAY(Text), nullable=False, default=list, server_default="{}")
-    instagram_location_id = Column(String(32), nullable=True)
-    instagram_location_name = Column(String(255), nullable=True)
+    instagram_user_tags = Column(ARRAY(Text), nullable=False, default=list, server_default="{}")
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

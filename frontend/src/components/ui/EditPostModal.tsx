@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, FileUp } from 'lucide-react';
 import { type InstagramDetails, type PostCreate, updatePost, getAlbumsByCategory, uploadImage, publishPostToInstagram } from '@/lib/api';
-import InstagramDetailsFields, { instagramDetailsError, instagramDetailsPayload, instagramDetailsValue } from './InstagramDetailsFields';
+import InstagramDetailsFields, { instagramDetailsPayload, instagramDetailsValue } from './InstagramDetailsFields';
 import MarkdownEditor from './MarkdownEditor';
 import { useAuth } from '@/providers/AuthProvider';
 import ShopListingFields, { shopListingError, shopListingPayload, type ShopListingValue } from '@/components/ecommerce/ShopListingFields';
@@ -154,11 +154,6 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
             setInstagramError('You must be logged in to post to Instagram.');
             return;
         }
-        const detailsError = instagramDetailsError(instagramDetails);
-        if (detailsError) {
-            setInstagramError(detailsError);
-            return;
-        }
         if (!window.confirm('Post this photo to Instagram now? It can\'t be deleted or edited from here afterwards.')) {
             return;
         }
@@ -212,12 +207,6 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
         }
 
         if (editsInstagramDetails) {
-            const detailsError = instagramDetailsError(instagramDetails);
-            if (detailsError) {
-                setError(detailsError);
-                setIsLoading(false);
-                return;
-            }
             Object.assign(submitData, instagramDetailsPayload(instagramDetails));
         }
 
@@ -532,7 +521,6 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
                                         <InstagramDetailsFields
                                             value={instagramDetails}
                                             onChange={(patch) => setInstagramDetails(prev => ({ ...prev, ...patch }))}
-                                            authToken={authToken}
                                         />
                                     )}
 

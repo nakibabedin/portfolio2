@@ -807,9 +807,7 @@ export default function Feed({ directory, activeAlbum = 'all', category, useData
                   mirror_to_aiko: selectedImage.rawPost.mirror_to_aiko ?? true,
                   instagram_media_id: selectedImage.rawPost.instagram_media_id ?? null,
                   instagram_hashtags: selectedImage.rawPost.instagram_hashtags ?? [],
-                  instagram_collaborators: selectedImage.rawPost.instagram_collaborators ?? [],
-                  instagram_location_id: selectedImage.rawPost.instagram_location_id ?? null,
-                  instagram_location_name: selectedImage.rawPost.instagram_location_name ?? null,
+                  instagram_user_tags: selectedImage.rawPost.instagram_user_tags ?? [],
                 }
                 : undefined
             }

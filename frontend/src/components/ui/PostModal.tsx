@@ -21,7 +21,7 @@ import { getAvailableNotes, embedNote, embedNowPlaying, type AvailableNote, crea
 import MarkdownEditor from './MarkdownEditor';
 import { useAuth } from '@/providers/AuthProvider';
 import ShopListingFields, { shopListingError, shopListingPayload, type ShopListingValue } from '@/components/ecommerce/ShopListingFields';
-import InstagramDetailsFields, { instagramDetailsError, instagramDetailsPayload, instagramDetailsValue, type InstagramDetailsValue } from './InstagramDetailsFields';
+import InstagramDetailsFields, { instagramDetailsPayload, instagramDetailsValue, type InstagramDetailsValue } from './InstagramDetailsFields';
 
 interface PostModalProps {
   isOpen: boolean;
@@ -669,15 +669,6 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
         setError(isProject ? 'Project posts need an article before publishing.' : 'Bio blog posts need an article.');
         setIsSubmitting(false);
         return;
-      }
-
-      if (willPostToInstagram) {
-        const detailsError = instagramDetailsError(instagramDetails);
-        if (detailsError) {
-          setError(detailsError);
-          setIsSubmitting(false);
-          return;
-        }
       }
 
       if (isShop) {
@@ -1712,7 +1703,6 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                     <InstagramDetailsFields
                       value={instagramDetails}
                       onChange={(patch) => setInstagramDetails(prev => ({ ...prev, ...patch }))}
-                      authToken={authToken}
                     />
                   )}
 
