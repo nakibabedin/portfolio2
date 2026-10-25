@@ -101,6 +101,9 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
     const savedToAiko = post.mirrorToAiko ?? true;
     // Only editable until the post is on Instagram: nothing reads them after.
     const editsInstagramDetails = isSavedPhoto && !instagramMediaId && !!formData.mirror_to_aiko;
+    // What Instagram will publish: a photo group's photos, or the one photo.
+    const instagramPhotoUrls = (post.galleryUrls?.length ?? 0) > 1 ? post.galleryUrls! : post.contentUrl ? [post.contentUrl] : [];
+    const instagramPhotos = instagramPhotoUrls.map((url) => ({ key: url, url, preview: url }));
     // File posts (e.g. a resume PDF) keep the file itself in content_url.
     const isFilePost = post.postType === 'file' || /\.pdf$/i.test(post.contentUrl || '');
     const currentFileName = post.contentUrl ? decodeURIComponent(post.contentUrl.split('/').pop() || '') : '';
@@ -161,7 +164,7 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
         setInstagramError(null);
         try {
             // The server publishes what's stored, so the details go in first.
-            await updatePost(post.id, instagramDetailsPayload(instagramDetails), authToken);
+            await updatePost(post.id, instagramDetailsPayload(instagramDetails, instagramPhotos), authToken);
             const updated = await publishPostToInstagram(post.id, authToken);
             setInstagramMediaId(updated.instagram_media_id ?? 'posted');
             onUpdate(updated);
@@ -207,7 +210,7 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
         }
 
         if (editsInstagramDetails) {
-            Object.assign(submitData, instagramDetailsPayload(instagramDetails));
+            Object.assign(submitData, instagramDetailsPayload(instagramDetails, instagramPhotos));
         }
 
         try {
@@ -521,6 +524,7 @@ const [articleContent, setArticleContent] = useState(post.contentUrl || '');
                                         <InstagramDetailsFields
                                             value={instagramDetails}
                                             onChange={(patch) => setInstagramDetails(prev => ({ ...prev, ...patch }))}
+                                            photos={instagramPhotos}
                                         />
                                     )}
 

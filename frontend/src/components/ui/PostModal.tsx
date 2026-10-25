@@ -23,6 +23,9 @@ import { useAuth } from '@/providers/AuthProvider';
 import ShopListingFields, { shopListingError, shopListingPayload, type ShopListingValue } from '@/components/ecommerce/ShopListingFields';
 import InstagramDetailsFields, { instagramDetailsPayload, instagramDetailsValue, type InstagramDetailsValue } from './InstagramDetailsFields';
 
+// Identifies a photo in the group for as long as the form is open, whatever its position.
+const photoKey = (file: File) => `${file.name}-${file.size}`;
+
 interface PostModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -875,7 +878,10 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
         postData.gallery_urls = galleryUrls;
       }
       if (willPostToInstagram) {
-        Object.assign(postData, instagramDetailsPayload(instagramDetails));
+        // The photos went up in galleryFiles' order; a single photo is the cover.
+        const photoUrls = galleryFiles.length > 1 ? galleryUrls : [uploadedContentUrl];
+        const photos = galleryFiles.map((file, index) => ({ key: photoKey(file), url: photoUrls[index] }));
+        Object.assign(postData, instagramDetailsPayload(instagramDetails, photos));
       }
 
       console.log('[PostModal] Post data prepared:', postData);
@@ -1423,7 +1429,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                         <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
                           {galleryPreviews.map((preview, index) => (
                             <div
-                              key={`${galleryFiles[index]?.name}-${galleryFiles[index]?.size}`}
+                              key={galleryFiles[index] ? photoKey(galleryFiles[index]) : index}
                               draggable={galleryPreviews.length > 1}
                               onDragStart={() => setDragPhotoIndex(index)}
                               onDragOver={(ev) => ev.preventDefault()}
@@ -1703,6 +1709,7 @@ export default function PostModal({ isOpen, onClose, defaultSubject = '', defaul
                     <InstagramDetailsFields
                       value={instagramDetails}
                       onChange={(patch) => setInstagramDetails(prev => ({ ...prev, ...patch }))}
+                      photos={galleryFiles.map((file, index) => ({ key: photoKey(file), preview: galleryPreviews[index] }))}
                     />
                   )}
 

@@ -16,7 +16,7 @@ def _post(**overrides):
         title="Title",
         description="A walk by the water",
         instagram_hashtags=[],
-        instagram_user_tags=[],
+        instagram_photo_tags={},
     )
     fields.update(overrides)
     return SimpleNamespace(**fields)
@@ -31,15 +31,15 @@ class SchemaTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             PostUpdate(instagram_hashtags=[f"tag{i}" for i in range(31)])
 
-    def test_user_tags_are_bare_lowercase_usernames(self):
-        update = PostUpdate(instagram_user_tags=["@Some.One", "some.one", "two_2"])
-        self.assertEqual(update.instagram_user_tags, ["some.one", "two_2"])
+    def test_photo_tags_are_bare_lowercase_usernames(self):
+        update = PostUpdate(instagram_photo_tags={"https://s3/a": ["@Some.One", "some.one", "two_2"], "https://s3/b": []})
+        self.assertEqual(update.instagram_photo_tags, {"https://s3/a": ["some.one", "two_2"]})
 
-    def test_user_tag_limits(self):
+    def test_photo_tag_limits(self):
         with self.assertRaises(ValidationError):
-            PostUpdate(instagram_user_tags=[f"user{i}" for i in range(21)])
+            PostUpdate(instagram_photo_tags={"https://s3/a": [f"user{i}" for i in range(21)]})
         with self.assertRaises(ValidationError):
-            PostUpdate(instagram_user_tags=["not a username"])
+            PostUpdate(instagram_photo_tags={"https://s3/a": ["not a username"]})
 
 
 class CaptionTests(unittest.TestCase):
@@ -54,8 +54,10 @@ class CaptionTests(unittest.TestCase):
         self.assertTrue(caption.endswith("https://aiko/pin/1\n\n#film"))
 
     def test_user_tag_params(self):
-        self.assertEqual(instagram_sync._user_tag_params(_post()), {})
-        params = instagram_sync._user_tag_params(_post(instagram_user_tags=["a.b", "c_d"]))
+        self.assertEqual(instagram_sync._user_tag_params(_post(), "https://s3/a"), {})
+        post = _post(instagram_photo_tags={"https://s3/a": ["a.b", "c_d"]})
+        self.assertEqual(instagram_sync._user_tag_params(post, "https://s3/b"), {})
+        params = instagram_sync._user_tag_params(post, "https://s3/a")
         self.assertEqual(
             json.loads(params["user_tags"]),
             [{"username": "a.b", "x": 0.333, "y": 0.5}, {"username": "c_d", "x": 0.667, "y": 0.5}],
@@ -103,8 +105,8 @@ class _Client:
 
 
 class RetryTests(unittest.TestCase):
-    def _publish(self, images):
-        post = _post(content_url=images[0], instagram_user_tags=["gone.private"])
+    def _publish(self, images, tags):
+        post = _post(content_url=images[0], instagram_photo_tags=tags)
         with (
             mock.patch.object(instagram_sync, "_config", return_value=("https://graph", "u", "t")),
             mock.patch.object(instagram_sync.aiko_sync, "group_images", return_value=images),
@@ -116,21 +118,24 @@ class RetryTests(unittest.TestCase):
             return asyncio.run(instagram_sync.publish_post(post, "https://aiko/pin/1"))
 
     def test_publishes_untagged_when_instagram_refuses_the_tags(self):
-        result = self._publish(["https://s3/x.webp"])
+        result = self._publish(["https://s3/x.webp"], {"https://s3/x.webp": ["gone.private"]})
         self.assertEqual(result, {"ok": True, "media_id": "m1"})
         first, retry = _Client.last.containers
         self.assertIn("user_tags", first)
         self.assertNotIn("user_tags", retry)
         self.assertEqual(retry["caption"], first["caption"])
 
-    def test_carousel_tags_go_on_the_first_photo(self):
-        result = self._publish(["https://s3/a.webp", "https://s3/b.webp"])
+    def test_carousel_tags_go_on_their_own_photo(self):
+        images = ["https://s3/a.webp", "https://s3/b.webp", "https://s3/c.webp"]
+        result = self._publish(images, {"https://s3/b.webp": ["someone"]})
         self.assertEqual(result, {"ok": True, "media_id": "m1"})
-        tagged, first, second, carousel = _Client.last.containers
-        self.assertIn("user_tags", tagged)
-        self.assertEqual(tagged["is_carousel_item"], "true")
+        first, tagged, untagged_retry, third, carousel = _Client.last.containers
         self.assertNotIn("user_tags", first)
-        self.assertNotIn("user_tags", second)
+        self.assertEqual(json.loads(tagged["user_tags"])[0]["username"], "someone")
+        self.assertEqual(tagged["is_carousel_item"], "true")
+        self.assertNotIn("user_tags", untagged_retry)
+        self.assertEqual(untagged_retry["is_carousel_item"], "true")
+        self.assertNotIn("user_tags", third)
         self.assertEqual(carousel["media_type"], "CAROUSEL")
         self.assertNotIn("user_tags", carousel)
 

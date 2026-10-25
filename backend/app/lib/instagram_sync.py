@@ -120,7 +120,7 @@ def snapshot(post) -> SimpleNamespace:
         gallery_urls=list(post.gallery_urls or []),
         instagram_media_id=post.instagram_media_id,
         instagram_hashtags=list(post.instagram_hashtags or []),
-        instagram_user_tags=list(post.instagram_user_tags or []),
+        instagram_photo_tags=dict(post.instagram_photo_tags or {}),
     )
 
 
@@ -167,16 +167,16 @@ def _caption(post, link: Optional[str] = None) -> str:
     return "\n\n".join(part for part in (text, *tail) if part)
 
 
-def _user_tag_params(post) -> dict:
-    """The people tagged in the photo, for an image container (a single image,
-    or the first item of a carousel -- the carousel container itself takes no
+def _user_tag_params(post, image_url: str) -> dict:
+    """The people tagged in one photo, for its image container (a single
+    image, or one item of a carousel -- the carousel container itself takes no
     tags).
 
     Instagram wants each tag pinned to a spot on the image, as fractions of its
     width and height. The admin form only takes usernames, so the tags are
     spread across the middle of the photo; they show when the photo is tapped.
     """
-    usernames = getattr(post, "instagram_user_tags", None) or []
+    usernames = (getattr(post, "instagram_photo_tags", None) or {}).get(image_url) or []
     if not usernames:
         return {}
     count = len(usernames)
@@ -332,14 +332,15 @@ async def publish_post(post, link: Optional[str] = None) -> dict:
             return None, {"ok": False, "error": wait_error}
         return container_id, None
 
-    async def create_tagged_container(data: dict) -> tuple[Optional[str], Optional[dict]]:
-        """An image container with the post's people tagged. If Instagram
-        turns the tags down (a username that doesn't exist, an account that
-        can't be tagged) the photo goes out untagged rather than not at all."""
-        tags = _user_tag_params(post)
+    async def create_tagged_container(data: dict, image_url: str) -> tuple[Optional[str], Optional[dict]]:
+        """An image container with the people tagged in that photo. If
+        Instagram turns the tags down (a username that doesn't exist, an
+        account that can't be tagged) the photo goes out untagged rather than
+        not at all."""
+        tags = _user_tag_params(post, image_url)
         container_id, failure = await create_container({**data, **tags})
         if failure and tags:
-            logger.warning("[instagram] retrying post %s without user tags", post_id)
+            logger.warning("[instagram] retrying a photo of post %s without user tags", post_id)
             container_id, failure = await create_container(data)
         return container_id, failure
 
@@ -356,12 +357,12 @@ async def publish_post(post, link: Optional[str] = None) -> dict:
                 sources.append(source.content)
 
             # 2. Create the media container: one image, or a carousel of child
-            #    containers padded to the first photo's (accepted) shape. The
-            #    people tagged go on the image, or on a carousel's first photo.
+            #    containers padded to the first photo's (accepted) shape. Each
+            #    image container carries the people tagged in that photo.
             if len(sources) == 1:
                 jpeg_url = await asyncio.to_thread(_prepare_jpeg, sources[0], post_id)
                 container_id, failure = await create_tagged_container(
-                    {"image_url": jpeg_url, "caption": _caption(post, link)}
+                    {"image_url": jpeg_url, "caption": _caption(post, link)}, images[0]
                 )
                 if failure:
                     return failure
@@ -372,9 +373,8 @@ async def publish_post(post, link: Optional[str] = None) -> dict:
                     jpeg_url = await asyncio.to_thread(
                         _prepare_jpeg, content, f"{post_id}-{index + 1}", target
                     )
-                    create_child = create_tagged_container if index == 0 else create_container
-                    child_id, failure = await create_child(
-                        {"image_url": jpeg_url, "is_carousel_item": "true"}
+                    child_id, failure = await create_tagged_container(
+                        {"image_url": jpeg_url, "is_carousel_item": "true"}, images[index]
                     )
                     if failure:
                         return failure

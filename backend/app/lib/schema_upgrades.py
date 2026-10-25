@@ -21,6 +21,7 @@ STATEMENTS = [
     "ALTER TABLE posts ADD COLUMN IF NOT EXISTS instagram_location_id VARCHAR(32)",
     "ALTER TABLE posts ADD COLUMN IF NOT EXISTS instagram_location_name VARCHAR(255)",
     "ALTER TABLE posts ADD COLUMN IF NOT EXISTS instagram_user_tags TEXT[] NOT NULL DEFAULT '{}'",
+    "ALTER TABLE posts ADD COLUMN IF NOT EXISTS instagram_photo_tags JSONB NOT NULL DEFAULT '{}'",
 ]
 
 

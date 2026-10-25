@@ -11,17 +11,27 @@ export const DEFAULT_INSTAGRAM_HASHTAGS = ['photography', 'sonyalpha', 'lightroo
 const MAX_HASHTAGS = 30;
 const MAX_USER_TAGS = 20;
 
-/** The form's copy of the details. */
+/**
+ * The form's copy of the details. People tagged are kept per photo, by a key
+ * that stays with the photo when the group is reordered: the file in the
+ * create form, the image URL once the post is saved.
+ */
 export interface InstagramDetailsValue {
   hashtags: string[];
-  userTags: string[];
+  photoTags: Record<string, string[]>;
+}
+
+/** A photo the post will publish, in order: its key and something to show. */
+export interface InstagramPhoto {
+  key: string;
+  preview: string;
 }
 
 export function instagramDetailsValue(post?: Partial<InstagramDetails> | null): InstagramDetailsValue {
   const hashtags = post?.instagram_hashtags ?? [];
   return {
     hashtags: hashtags.length ? hashtags : DEFAULT_INSTAGRAM_HASHTAGS,
-    userTags: post?.instagram_user_tags ?? [],
+    photoTags: post?.instagram_photo_tags ?? {},
   };
 }
 
@@ -34,11 +44,22 @@ function cleanUsername(name: string): string {
   return name.trim().replace(/^@/, '').replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/\/.*$/, '').toLowerCase();
 }
 
-/** The details as a post create/update payload. */
-export function instagramDetailsPayload(value: InstagramDetailsValue): InstagramDetails {
+/**
+ * The details as a post create/update payload. ``photos`` maps each photo
+ * still in the post to its image URL; tags on a photo since removed are dropped.
+ */
+export function instagramDetailsPayload(
+  value: InstagramDetailsValue,
+  photos: { key: string; url: string }[],
+): InstagramDetails {
+  const photoTags: Record<string, string[]> = {};
+  for (const { key, url } of photos) {
+    const tags = value.photoTags[key];
+    if (url && tags?.length) photoTags[url] = tags;
+  }
   return {
     instagram_hashtags: value.hashtags,
-    instagram_user_tags: value.userTags,
+    instagram_photo_tags: photoTags,
   };
 }
 
@@ -129,10 +150,14 @@ function ChipInput({ label, hint, values, onChange, clean, prefix, max, placehol
 interface InstagramDetailsFieldsProps {
   value: InstagramDetailsValue;
   onChange: (patch: Partial<InstagramDetailsValue>) => void;
+  photos: InstagramPhoto[];
 }
 
-/** Hashtags and the people tagged, for a photo going to Instagram. */
-export default function InstagramDetailsFields({ value, onChange }: InstagramDetailsFieldsProps) {
+/** Hashtags, and the people tagged in each photo, for a post going to Instagram. */
+export default function InstagramDetailsFields({ value, onChange, photos }: InstagramDetailsFieldsProps) {
+  const setTags = (key: string, tags: string[]) => onChange({ photoTags: { ...value.photoTags, [key]: tags } });
+  const isGroup = photos.length > 1;
+
   return (
     <div className="space-y-4 p-4 bg-white/5 rounded-xl border border-white/10">
       <p className="text-white font-medium">Instagram details</p>
@@ -148,17 +173,31 @@ export default function InstagramDetailsFields({ value, onChange }: InstagramDet
         placeholder="photography"
       />
 
-      <ChipInput
-        label="Tag people"
-        hint="Instagram usernames. They're tagged in the photo (the first one, in a group) and notified."
-        values={value.userTags}
-        onChange={(userTags) => onChange({ userTags })}
-        clean={cleanUsername}
-        prefix="@"
-        max={MAX_USER_TAGS}
-        placeholder="username"
-        isValid={(name) => /^[a-z0-9._]{1,30}$/.test(name)}
-      />
+      {photos.map((photo, index) => (
+        <div key={photo.key} className="flex items-start gap-3">
+          {isGroup && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={photo.preview}
+              alt={`Photo ${index + 1}`}
+              className="mt-7 w-12 h-12 shrink-0 object-cover rounded-md border border-white/20"
+            />
+          )}
+          <div className="flex-1 min-w-0">
+            <ChipInput
+              label={isGroup ? `Tag people in ${index === 0 ? 'the cover' : `photo ${index + 1}`}` : 'Tag people'}
+              hint={index === 0 ? "Instagram usernames. They're tagged in the photo and notified." : ''}
+              values={value.photoTags[photo.key] ?? []}
+              onChange={(tags) => setTags(photo.key, tags)}
+              clean={cleanUsername}
+              prefix="@"
+              max={MAX_USER_TAGS}
+              placeholder="username"
+              isValid={(name) => /^[a-z0-9._]{1,30}$/.test(name)}
+            />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
