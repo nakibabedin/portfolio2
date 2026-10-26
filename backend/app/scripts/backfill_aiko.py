@@ -7,10 +7,16 @@ Safe to re-run. Aiko upserts on ``(source, sourceId)``, so a second pass updates
 the pins the first pass created rather than duplicating them — which also makes
 this the repair tool if a run dies partway.
 
-    python backfill_aiko.py --dry-run          # list what would be pushed
-    python backfill_aiko.py                    # push everything
-    python backfill_aiko.py --limit 5          # try a handful first
-    python backfill_aiko.py --category art
+    python -m app.scripts.backfill_aiko --dry-run    # list what would be pushed
+    python -m app.scripts.backfill_aiko              # push everything
+    python -m app.scripts.backfill_aiko --limit 5    # try a handful first
+    python -m app.scripts.backfill_aiko --category art
+
+Lives under app/ so it ships in the image (the Dockerfile only copies app/):
+production's database is RDS inside the VPC, so this runs as a one-off ECS
+task on the portfolio-api task definition with the command overridden. A
+laptop .env points at the old Railway database, which is missing newer
+columns and data.
 
 Deliberately sequential with a delay between posts: each push makes Aiko
 download an image, run moderation, vector-search 1.9M pins for duplicates, and
