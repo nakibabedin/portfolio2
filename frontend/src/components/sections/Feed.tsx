@@ -323,12 +323,13 @@ const use2DPacking = (items: FeedItem[], containerWidth: number, gap: number = 1
   const prevItemsKeyRef = useRef<string>('');
 
   useEffect(() => {
-    // Skip if items haven't actually changed (same IDs)
-    if (itemsKey === prevItemsKeyRef.current && itemsLength > 0) {
-      console.log('🎯 Skipping - items unchanged');
+    // Skip if neither the items (same IDs) nor the width have changed
+    const layoutKey = `${containerWidth}|${itemsKey}`;
+    if (layoutKey === prevItemsKeyRef.current && itemsLength > 0) {
+      console.log('🎯 Skipping - items and width unchanged');
       return;
     }
-    prevItemsKeyRef.current = itemsKey;
+    prevItemsKeyRef.current = layoutKey;
 
     console.log('🎯 use2DPacking effect running:', { itemsLength, containerWidth });
     if (itemsLength === 0 || containerWidth === 0) {
@@ -427,7 +428,7 @@ const use2DPacking = (items: FeedItem[], containerWidth: number, gap: number = 1
         // Check if any position changed
         const changed = prev.some((oldPos, i) => {
           const newPos = allPositions[i];
-          return !newPos || oldPos.x !== newPos.x || oldPos.y !== newPos.y || oldPos.item.id !== newPos.item.id;
+          return !newPos || oldPos.x !== newPos.x || oldPos.y !== newPos.y || oldPos.width !== newPos.width || oldPos.item.id !== newPos.item.id;
         });
         return changed ? allPositions : prev;
       });
@@ -456,12 +457,28 @@ export default function Feed({ directory, activeAlbum = 'all', category, useData
   const isFetchingRef = useRef(false); // Ref-based guard to prevent concurrent fetches
   const { token: authToken, user } = useAuth();
 
-  // Callback ref to measure width when element is mounted
+  // Callback ref to measure width when element is mounted, and again whenever
+  // it resizes (window resize, rotation, scrollbar appearing). Returning the
+  // cleanup lets React 19 disconnect the observer when the node unmounts.
   const containerRefCallback = useCallback((node: HTMLDivElement | null) => {
-    if (node) {
-      console.log('🔍 Container mounted, measuring width:', node.offsetWidth);
-      setContainerWidth(node.offsetWidth);
-    }
+    if (!node) return;
+    console.log('🔍 Container mounted, measuring width:', node.offsetWidth);
+    setContainerWidth(node.offsetWidth);
+
+    if (typeof ResizeObserver === 'undefined') return;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const width = node.offsetWidth;
+        setContainerWidth(prev => (prev === width ? prev : width));
+      });
+    });
+    observer.observe(node);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
   }, []);
 
   // Fetch posts from database (paginated)
