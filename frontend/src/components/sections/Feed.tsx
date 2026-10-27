@@ -455,6 +455,7 @@ export default function Feed({ directory, activeAlbum = 'all', category, useData
   const previousUrlRef = useRef<string | null>(null);
   const offsetRef = useRef(0); // Track API offset independently of feedItems.length
   const isFetchingRef = useRef(false); // Ref-based guard to prevent concurrent fetches
+  const requestGenRef = useRef(0); // Bumped on every filter change; stale responses are dropped
   const { token: authToken, user } = useAuth();
 
   // Callback ref to measure width when element is mounted, and again whenever
@@ -486,6 +487,7 @@ export default function Feed({ directory, activeAlbum = 'all', category, useData
     const loadFeedItems = async () => {
       console.log('🚀 Loading feed items...', { useDatabase, category, directory, activeAlbum });
 
+      const gen = ++requestGenRef.current;
       setIsLoading(true);
       setFeedItems([]); // Reset items on filter change
       offsetRef.current = 0;
@@ -512,6 +514,7 @@ export default function Feed({ directory, activeAlbum = 'all', category, useData
 
           const posts = await getPosts(params);
           items = await convertPostsToFeedItems(posts);
+          if (gen !== requestGenRef.current) return;
           console.log('✅ Feed items loaded from database:', items.length, 'items');
 
           offsetRef.current = posts.length;
@@ -519,16 +522,18 @@ export default function Feed({ directory, activeAlbum = 'all', category, useData
         } else {
           // Use static images - fetch all (no album filtering)
           items = await generateFeedItems(directory, activeAlbum);
+          if (gen !== requestGenRef.current) return;
           console.log('✅ All feed items loaded from static images:', items.length, 'items');
           setHasMore(false); // Static images are all loaded at once
         }
 
         setFeedItems(items);
       } catch (error) {
+        if (gen !== requestGenRef.current) return;
         console.error('❌ Error loading feed items:', error);
         setFeedItems([]);
       } finally {
-        setIsLoading(false);
+        if (gen === requestGenRef.current) setIsLoading(false);
       }
     };
 
@@ -538,6 +543,7 @@ export default function Feed({ directory, activeAlbum = 'all', category, useData
   const handleLoadMore = useCallback(async () => {
     if (!useDatabase || isLoading || isFetchingRef.current) return;
 
+    const gen = requestGenRef.current;
     isFetchingRef.current = true;
     setIsFetchingMore(true);
     try {
@@ -557,8 +563,10 @@ export default function Feed({ directory, activeAlbum = 'all', category, useData
       }
 
       const posts = await getPosts(params);
-      offsetRef.current += posts.length;
       const newItems = await convertPostsToFeedItems(posts);
+      // The album/category changed while this page was in flight
+      if (gen !== requestGenRef.current) return;
+      offsetRef.current += posts.length;
 
       setFeedItems(prev => {
         const existingIds = new Set(prev.map(item => item.id));
