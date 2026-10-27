@@ -648,8 +648,11 @@ export default function Feed({ directory, activeAlbum = 'all', category, useData
   }, []);
 
   useEffect(() => {
-    const handlePopState = (event: PopStateEvent) => {
-      if (event.state && event.state.modal && isModalOpen) {
+    // Any history move while the modal is open (Back from the post URL lands
+    // on an entry without `modal` state) means the post is no longer current.
+    // The URL has already changed, so drop previousUrlRef rather than replace.
+    const handlePopState = () => {
+      if (isModalOpen) {
         setIsModalOpen(false);
         setSelectedImage(null);
         previousUrlRef.current = null;
